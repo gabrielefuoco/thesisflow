@@ -161,17 +161,31 @@ class EditorFrame(ctk.CTkFrame):
         
         # Determine position
         self.close_suggestions()
-        x, y, w, h = self.textbox.bbox("insert")
-        
-        # Adjustment for CTkTextbox offset inside frame
-        # bbox returns relative coordinates.
-        # We need a popover. CTk doesn't have a Listbox, use tk.Listbox
-        
-        self.suggestion_list = tk.Listbox(self, font=("Consolas", 12))
-        # This placement is tricky in CTk. Let's place it absolutely relative to editor frame.
-        # This is a naive implementation; real one requires coordinate mapping
-        self.suggestion_list.place(x=50, y=50, width=300, height=100) # Placeholder pos
-        
+        try:
+            # bbox("insert") returns (x, y, w, h) relative to the text widget content
+            # We need to map this to the frame coord. 
+            # Note: CustomTkinter Textbox contains a Tkinter Text widget as ._textbox
+            x, y, w, h = self.textbox._textbox.bbox("insert")
+            
+            # Additional offset for the frame padding
+            # This is still a bit empirical due to nesting, but better than absolute 50,50
+            # Let's place it using place relative to the textbox container
+            
+            # The listbox needs to be distinct. 
+            # If we use place on 'self' (EditorFrame), x and y should be relative to EditorFrame.
+            # self.textbox.winfo_x() + x ...
+            
+            rel_x = self.textbox.winfo_x() + x + 25 # + padding
+            rel_y = self.textbox.winfo_y() + y + 25
+            
+            self.suggestion_list = tk.Listbox(self, font=("Consolas", 12))
+            self.suggestion_list.place(x=rel_x, y=rel_y, width=300, height=100)
+        except Exception as e:
+            # Fallback if bbox fails
+            print(f"Bbox error: {e}")
+            self.suggestion_list = tk.Listbox(self, font=("Consolas", 12))
+            self.suggestion_list.place(x=50, y=50, width=300, height=100)
+            
         for cit in citations:
             self.suggestion_list.insert(tk.END, cit)
             

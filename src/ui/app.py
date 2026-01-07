@@ -12,6 +12,8 @@ from src.ui.bibliography import BibliographyFrame
 from src.ui.bibliography import BibliographyFrame
 from src.engine.compiler import CompilerEngine, CompilationError
 from src.engine.project_manager import ProjectManager
+from src.utils.logger import setup_logger, get_logger
+from src.utils.paths import get_pandoc_exe, get_typst_exe
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -22,6 +24,10 @@ class ThesisFlowApp(ctk.CTk):
 
         self.title("ThesisFlow - Write Markdown, Publish Typst")
         self.geometry("1100x700")
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.logger = setup_logger()
+        self.check_dependencies()
 
         self.pm = ProjectManager()
         self.current_chapter = None
@@ -76,6 +82,15 @@ class ThesisFlowApp(ctk.CTk):
         self.bib_editor = None # Lazy init
         
         # --- End Views ---
+    
+    def check_dependencies(self):
+        missing = []
+        if not get_pandoc_exe().exists(): missing.append("Pandoc")
+        if not get_typst_exe().exists(): missing.append("Typst")
+        
+        if missing:
+             self.logger.warning(f"Missing dependencies: {', '.join(missing)}")
+             self.after(500, lambda: msg.showwarning("Dipendenze Mancanti", f"Attenzione, i seguenti eseguibili non sono stati trovati:\n{', '.join(missing)}\n\nLa compilazione potrebbe fallire."))
 
     def mark_dirty(self):
         self.is_dirty = True
@@ -222,8 +237,11 @@ class ThesisFlowApp(ctk.CTk):
         
         if not self.pm.current_project_path:
             return
+        
+        # Lock UI
+        self.toolbar.btn_compile.configure(state="disabled", text="Compilazione...")
 
-        print(f"Compiling project: {self.pm.current_project_path}")
+        self.logger.info(f"Compiling project: {self.pm.current_project_path}")
         
         def run_compile():
             engine = CompilerEngine(self.pm.current_project_path)
@@ -235,8 +253,13 @@ class ThesisFlowApp(ctk.CTk):
                 self.after(0, lambda: self._on_compile_error(e))
             except Exception as e:
                 self.after(0, lambda: msg.showerror("Errore Generico", str(e)))
+            finally:
+                 self.after(0, self._on_compile_finished)
 
         threading.Thread(target=run_compile, daemon=True).start()
+
+    def _on_compile_finished(self):
+        self.toolbar.btn_compile.configure(state="normal", text="COMPILA PDF") # Assuming original text
 
     def _on_compile_error(self, error: CompilationError):
         # Show custom dialog with details
@@ -268,3 +291,8 @@ class ThesisFlowApp(ctk.CTk):
         content = bib_path.read_text(encoding="utf-8")
         keys = re.findall(r'@\w+\{([^,]+),', content)
         return keys
+
+    def on_close(self):
+        if self.is_dirty:
+            self.save_current_chapter() # Force save
+        self.destroy()

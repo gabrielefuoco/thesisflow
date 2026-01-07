@@ -154,7 +154,18 @@ class ProjectManager:
 
     def _save_manifest(self, project_dir: Path, manifest: ProjectManifest):
         path = project_dir / ".thesis_data" / "manifest.json"
-        path.write_text(json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
+        
+        # Atomic Write
+        temp_path = path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
+            if path.exists():
+                path.unlink() # Windows replace requires target check sometimes, shutil.move is safer or just rename
+            temp_path.rename(path)
+        except Exception as e:
+            print(f"Error saving manifest: {e}")
+            if temp_path.exists(): temp_path.unlink()
+            raise e
 
     def add_asset(self, source_path: Path) -> str:
         """Copies an asset file to the project assets directory and returns relative path."""
@@ -165,12 +176,22 @@ class ProjectManager:
         assets_dir.mkdir(exist_ok=True)
         
         dest_path = assets_dir / source_path.name
+        
+        # Collision handling: rename if exists
+        if dest_path.exists():
+            base = dest_path.stem
+            ext = dest_path.suffix
+            counter = 1
+            while dest_path.exists():
+                dest_path = assets_dir / f"{base}_{counter}{ext}"
+                counter += 1
+        
         # Simple copy
         import shutil
         shutil.copy2(source_path, dest_path)
         
         # Return path relative to project root (standard markdown format)
-        return f"assets/{source_path.name}"
+        return f"assets/{dest_path.name}"
 
     def export_project(self, project_path: Path, dest_zip: Path):
         """Archives the project folder to a zip file."""
@@ -193,6 +214,17 @@ class ProjectManager:
         # Check if valid zip
         if not zipfile.is_zipfile(zip_path):
             raise ValueError("Not a valid zip file")
+
+        # Basic Structure Validation
+        has_manifest = False
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            for name in zf.namelist():
+                if "manifest.json" in name:
+                    has_manifest = True
+                    break
+        
+        if not has_manifest:
+             raise ValueError("Invalid Project: manifest.json not found in archive.")
 
         # Destination
         dest_dir = self.projects_root

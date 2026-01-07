@@ -4,6 +4,7 @@ import shutil
 from .pandoc_wrapper import PandocWrapper
 from .typst_wrapper import TypstWrapper
 from src.utils.paths import get_templates_dir
+from src.utils.logger import get_logger
 
 class CompilerEngine:
     def __init__(self, project_root: Path):
@@ -17,6 +18,7 @@ class CompilerEngine:
         
         self.pandoc = PandocWrapper()
         self.typst = TypstWrapper()
+        self.logger = get_logger()
 
     def _prepare_temp(self):
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -36,6 +38,9 @@ class CompilerEngine:
                     path = self.chapters_dir / filename
                     if path.exists():
                         full_text += path.read_text(encoding="utf-8") + "\n\n"
+                    else:
+                        self.logger.warning(f"Chapter file missing (Ghost): {filename}")
+                        full_text += f"\n\n*Contenuto Mancante: {filename}*\n\n"
                 return full_text
             except Exception as e:
                 print(f"Error reading manifest: {e}. Falling back to alphabetical.")
@@ -48,6 +53,7 @@ class CompilerEngine:
         return full_text
 
     def compile(self):
+        self.logger.info("Starting compilation...")
         print("Step 1: Preparing build environment...")
         self._prepare_temp()
 
