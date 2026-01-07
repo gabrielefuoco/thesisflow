@@ -3,14 +3,18 @@ import customtkinter as ctk
 from src.engine.models import Chapter
 from typing import Callable
 
+import tkinter as tk # For Menu
+
 class SidebarFrame(ctk.CTkFrame):
-    def __init__(self, master, on_chapter_select: Callable[[Chapter], None], on_add_chapter: Callable[[], None], on_move_chapter: Callable[[str], None], on_show_bib: Callable[[], None], on_open_settings: Callable[[], None], **kwargs):
+    def __init__(self, master, on_chapter_select: Callable[[Chapter], None], on_add_chapter: Callable[[], None], on_move_chapter: Callable[[str], None], on_show_bib: Callable[[], None], on_open_settings: Callable[[], None], on_rename_chapter: Callable[[Chapter], None] = None, on_delete_chapter: Callable[[Chapter], None] = None, **kwargs):
         super().__init__(master, width=200, corner_radius=0, **kwargs)
         self.on_chapter_select = on_chapter_select
         self.on_add_chapter = on_add_chapter
         self.on_move_chapter = on_move_chapter # 'up' or 'down'
         self.on_show_bib = on_show_bib
         self.on_open_settings = on_open_settings
+        self.on_rename_chapter = on_rename_chapter
+        self.on_delete_chapter = on_delete_chapter
         
         self.selected_chapter_id = None
 
@@ -57,6 +61,16 @@ class SidebarFrame(ctk.CTkFrame):
         self.btn_settings = ctk.CTkButton(self.bottom_frame, text="Impostazioni", fg_color="gray", command=self.on_settings)
         self.btn_settings.pack(padx=10, pady=5)
 
+        # Appearance Mode
+        self.lbl_mode = ctk.CTkLabel(self.bottom_frame, text="Tema:", font=("Arial", 10))
+        self.lbl_mode.pack(pady=(10,0))
+        self.option_mode = ctk.CTkOptionMenu(self.bottom_frame, values=["System", "Dark", "Light"], 
+                                             command=self.change_appearance_mode, width=100)
+        self.option_mode.pack(padx=10, pady=5)
+
+    def change_appearance_mode(self, new_mode: str):
+        ctk.set_appearance_mode(new_mode)
+
     def on_settings(self):
         # We need to access the app or project manager. 
         # The Sidebar doesn't hold reference to PM directly, but it can call a callback or access master.
@@ -74,3 +88,15 @@ class SidebarFrame(ctk.CTkFrame):
                                 fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
                                 command=lambda c=chapter: self.on_chapter_select(c))
             btn.pack(fill="x", pady=2)
+            
+            # Context Menu Binding
+            btn.bind("<Button-3>", lambda event, c=chapter: self.show_context_menu(event, c))
+            
+    def show_context_menu(self, event, chapter):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Rinomina", command=lambda: self.on_rename_chapter(chapter) if self.on_rename_chapter else None)
+        menu.add_command(label="Elimina", command=lambda: self.on_delete_chapter(chapter) if self.on_delete_chapter else None)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()

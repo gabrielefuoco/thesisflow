@@ -91,15 +91,24 @@ class CompilerEngine:
             except Exception as e:
                 print(f"Error reading manifest for CSL: {e}. Falling back to default.")
 
-        self.pandoc.convert_markdown_to_typst(full_markdown, compiled_body_path, csl_path=csl_path)
-
-        print("Step 4: Rendering PDF (Typst)...")
-        # Ensure master exists
-        if not self.master_file.exists():
-             self._create_default_master()
-
-        self.typst.compile(self.master_file, self.output_pdf)
+        try:
+             self.typst.compile(self.master_file, self.output_pdf)
+        except RuntimeError as e:
+             # Extract stderr from message "Typst failed: <stderr>"
+             msg = str(e)
+             if "Typst failed:" in msg:
+                 stderr = msg.split("Typst failed:", 1)[1].strip()
+                 raise CompilationError("Errore durante la compilazione Typst", details=stderr)
+             raise e
+             
         print(f"Done! Output at: {self.output_pdf}")
+        
+        print(f"Done! Output at: {self.output_pdf}")
+
+class CompilationError(Exception):
+    def __init__(self, message, details=""):
+        super().__init__(message)
+        self.details = details
 
     def _generate_typst_metadata(self):
         # Reads manifest and writes .thesis_data/temp/metadata.typ

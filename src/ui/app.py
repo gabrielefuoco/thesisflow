@@ -9,7 +9,8 @@ from src.ui.toolbar import ToolbarFrame
 from src.ui.dashboard import DashboardFrame
 from src.ui.sidebar import SidebarFrame
 from src.ui.bibliography import BibliographyFrame
-from src.engine.compiler import CompilerEngine
+from src.ui.bibliography import BibliographyFrame
+from src.engine.compiler import CompilerEngine, CompilationError
 from src.engine.project_manager import ProjectManager
 
 ctk.set_appearance_mode("System")
@@ -24,7 +25,14 @@ class ThesisFlowApp(ctk.CTk):
 
         self.pm = ProjectManager()
         self.current_chapter = None
+        self.pm = ProjectManager()
+        self.current_chapter = None
         self.view_mode = "editor" # or 'bibliography'
+        self.is_dirty = False
+        
+        # Autosave Timer
+        self.autosave_interval = 60000 # 60 seconds
+        self.after(self.autosave_interval, self.autosave_loop)
 
         # Container config
         self.grid_columnconfigure(0, weight=1)
@@ -46,7 +54,9 @@ class ThesisFlowApp(ctk.CTk):
                                     on_add_chapter=self.add_chapter_dialog,
                                     on_move_chapter=self.move_chapter,
                                     on_show_bib=self.open_bibliography,
-                                    on_open_settings=self.open_settings_dialog)
+                                    on_open_settings=self.open_settings_dialog,
+                                    on_rename_chapter=self.rename_chapter_dialog,
+                                    on_delete_chapter=self.delete_chapter_confirm)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
 
         # Content Area (Right)
@@ -60,12 +70,21 @@ class ThesisFlowApp(ctk.CTk):
         self.toolbar.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         # Editors Stack
-        self.editor = EditorFrame(self.content_area)
+        self.editor = EditorFrame(self.content_area, on_change=self.mark_dirty, get_citations_callback=self.get_citation_keys)
         self.editor.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         self.bib_editor = None # Lazy init
         
         # --- End Views ---
+
+    def mark_dirty(self):
+        self.is_dirty = True
+    
+    def autosave_loop(self):
+        if self.is_dirty and self.view_mode == "editor" and self.current_chapter:
+            print("Autosaving...") # Debug
+            self.save_current_chapter()
+        self.after(self.autosave_interval, self.autosave_loop)
 
     def open_project(self, path: Path):
         try:
@@ -130,6 +149,7 @@ class ThesisFlowApp(ctk.CTk):
         if self.current_chapter:
             text = self.editor.get_text()
             self.pm.update_chapter_content(self.current_chapter, text)
+            self.is_dirty = False
 
     def add_chapter_dialog(self):
         dialog = ctk.CTkInputDialog(text="Titolo del Capitolo:", title="Nuovo Capitolo")
@@ -154,6 +174,22 @@ class ThesisFlowApp(ctk.CTk):
         # OR just refreshing is enough and user re-clicks. 
         # To be nice:
         # But for now basic functionality.
+    
+    def rename_chapter_dialog(self, chapter):
+        dialog = ctk.CTkInputDialog(text="Nuovo Titolo:", title="Rinomina Capitolo")
+        new_title = dialog.get_input()
+        if new_title:
+            self.pm.rename_chapter(chapter, new_title)
+            self.refresh_sidebar()
+
+    def delete_chapter_confirm(self, chapter):
+        confirm = msg.askyesno("Elimina Capitolo", f"Sei sicuro di voler eliminare '{chapter.title}'?")
+        if confirm:
+            self.pm.delete_chapter(chapter)
+            if self.current_chapter and self.current_chapter.id == chapter.id:
+                self.current_chapter = None
+                self.editor.set_text("")
+            self.refresh_sidebar()
 
 
     def open_settings_dialog(self):
@@ -195,10 +231,24 @@ class ThesisFlowApp(ctk.CTk):
                 engine.compile()
                 pdf_path = engine.output_pdf
                 self.after(0, lambda: self._on_compile_success(pdf_path))
+            except CompilationError as e:
+                self.after(0, lambda: self._on_compile_error(e))
             except Exception as e:
-                self.after(0, lambda: msg.showerror("Errore Compilazione", str(e)))
+                self.after(0, lambda: msg.showerror("Errore Generico", str(e)))
 
         threading.Thread(target=run_compile, daemon=True).start()
+
+    def _on_compile_error(self, error: CompilationError):
+        # Show custom dialog with details
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Errore di Compilazione")
+        dialog.geometry("600x400")
+        
+        ctk.CTkLabel(dialog, text=str(error), text_color="red", font=("Arial", 14, "bold")).pack(pady=10)
+        
+        textbox = ctk.CTkTextbox(dialog, font=("Consolas", 12))
+        textbox.pack(fill="both", expand=True, padx=10, pady=10)
+        textbox.insert("1.0", error.details)
 
     def _on_compile_success(self, pdf_path):
         import os
@@ -207,3 +257,14 @@ class ThesisFlowApp(ctk.CTk):
             os.startfile(pdf_path)
         except Exception:
             pass
+
+    def get_citation_keys(self):
+        if not self.pm.current_project_path: return []
+        bib_path = self.pm.current_project_path / "references.bib"
+        if not bib_path.exists(): return []
+        
+        # Simple parsing of @type{key, ...}
+        import re
+        content = bib_path.read_text(encoding="utf-8")
+        keys = re.findall(r'@\w+\{([^,]+),', content)
+        return keys

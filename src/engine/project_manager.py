@@ -30,7 +30,7 @@ class ProjectManager:
                 projects.append(d)
         return projects
 
-    def create_project(self, name: str, author: str) -> Path:
+    def create_project(self, name: str, author: str, template_path: Path = None) -> Path:
         """Creates a new project structure."""
         safe_name = "".join([c for c in name if c.isalnum() or c in (' ', '_', '-')]).strip()
         project_dir = self.projects_root / safe_name
@@ -47,15 +47,17 @@ class ProjectManager:
         manifest = ProjectManifest(title=name, author=author)
         self._save_manifest(project_dir, manifest)
         
-        # Default Master Template
-        # In a real app we'd copy from templates, for now we create a basic one or copy key parts
-        default_master = get_templates_dir() / "master_default.typ"
-        target_master = project_dir / "master.typ"
-        if default_master.exists():
-            shutil.copy(default_master, target_master)
+        # Template Handling
+        if template_path and template_path.exists():
+            shutil.copy(template_path, target_master)
         else:
-            # Fallback
-            target_master.write_text('#include ".thesis_data/temp/compiled_body.typ"', encoding="utf-8")
+             # Default Master Template
+            default_master = get_templates_dir() / "master_default.typ"
+            if default_master.exists():
+                shutil.copy(default_master, target_master)
+            else:
+                # Fallback
+                target_master.write_text('#include ".thesis_data/temp/compiled_body.typ"', encoding="utf-8")
             
         self.current_project_path = project_dir
         self.manifest = manifest
@@ -96,6 +98,28 @@ class ProjectManager:
         # Save content
         file_path = self.current_project_path / "chapters" / f"{chapter.id}.md"
         file_path.write_text(content, encoding="utf-8")
+
+    def rename_chapter(self, chapter: Chapter, new_title: str):
+        if not self.manifest: return
+        # Update model
+        chapter.title = new_title
+        # Save manifest
+        self._save_manifest(self.current_project_path, self.manifest)
+        
+        # Optionally update content header if it exists?
+        # Let's keep it simple: just metadata rename.
+        
+    def delete_chapter(self, chapter: Chapter):
+        if not self.manifest: return
+        
+        # Remove from list
+        self.manifest.chapters = [c for c in self.manifest.chapters if c.id != chapter.id]
+        self._save_manifest(self.current_project_path, self.manifest)
+        
+        # Remove file
+        file_path = self.current_project_path / "chapters" / chapter.filename
+        if file_path.exists():
+            file_path.unlink()
 
     def move_chapter(self, chapter: Chapter, direction: str):
         """Moves a chapter 'up' or 'down' in the list."""

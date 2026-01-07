@@ -4,6 +4,7 @@ import tkinter.messagebox as msg
 from pathlib import Path
 from typing import Callable
 from src.engine.models import ProjectManifest
+from src.utils.paths import get_templates_dir
 
 class DashboardFrame(ctk.CTkFrame):
     def __init__(self, master, project_manager, on_project_selected: Callable[[Path], None], **kwargs):
@@ -42,6 +43,10 @@ class DashboardFrame(ctk.CTkFrame):
             widget.destroy()
 
         projects = self.pm.list_projects()
+        
+        # Sort by modification time (newest first)
+        projects.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
         if not projects:
             ctk.CTkLabel(self.scrollable, text="Nessun progetto trovato.").pack(pady=20)
             return
@@ -96,8 +101,9 @@ class DashboardFrame(ctk.CTkFrame):
             try:
                 name = dialog.result["title"]
                 author = dialog.result["author"]
+                template_path = dialog.result.get("template_path")
                 # Create project
-                self.pm.create_project(name, author=author)
+                self.pm.create_project(name, author=author, template_path=template_path)
                 
                 # Update manifest with extra fields
                 if self.pm.manifest:
@@ -136,8 +142,17 @@ class NewProjectDialog(ctk.CTkToplevel):
         self.entry_year = ctk.CTkEntry(self)
         self.entry_year.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
 
+        ctk.CTkLabel(self, text="Template").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        self.combo_template = ctk.CTkOptionMenu(self, values=self.get_templates())
+        self.combo_template.grid(row=4, column=1, padx=10, pady=10, sticky="ew")
+
         self.btn_ok = ctk.CTkButton(self, text="Crea", command=self.on_ok)
-        self.btn_ok.grid(row=4, column=0, columnspan=2, pady=20)
+        self.btn_ok.grid(row=5, column=0, columnspan=2, pady=20)
+    
+    def get_templates(self):
+        t_dir = get_templates_dir()
+        if not t_dir.exists(): return ["Default"]
+        return [f.name for f in t_dir.glob("*.typ")]
 
     def on_ok(self):
         t = self.entry_title.get()
@@ -152,4 +167,10 @@ class NewProjectDialog(ctk.CTkToplevel):
             "supervisor": self.entry_supervisor.get(),
             "year": self.entry_year.get()
         }
+        
+        # Resolve template path
+        selected_tmpl = self.combo_template.get()
+        if selected_tmpl:
+             self.result["template_path"] = get_templates_dir() / selected_tmpl
+             
         self.destroy()
