@@ -1,0 +1,53 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDES
+.vscode/
+.idea/
+
+# Local Project Data
+.thesis_data/
+debug_tcl.py
+*.pdf
+
+# Binaries (Large files should not be git tracked usually, unless necessary)
+# We track the bin folder but maybe not the exes if they are standard tools
+bin/*.exe
+!bin/.gitkeep
+
+# Temporary/Test Projects created during dev
+test_project/
+my_thesis_project/
+
+# OS specific
+.DS_Store
+Thumbs.db
