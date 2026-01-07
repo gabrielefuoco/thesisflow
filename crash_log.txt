@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "run.py", line 26, in <module>
+    main()
+  File "run.py", line 21, in main
+    app = ThesisFlowApp()
+          ^^^^^^^^^^^^^^^
+  File "src\ui\app.py", line 34, in __init__
+    self.check_dependencies()
+    ^^^^^^^^^^^^^^^^^^^^^^^
+  File "tkinter\__init__.py", line 2410, in __getattr__
+AttributeError: '_tkinter.tkapp' object has no attribute 'check_dependencies'
+
+Error: '_tkinter.tkapp' object has no attribute 'check_dependencies'

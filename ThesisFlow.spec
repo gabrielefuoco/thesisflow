@@ -31,6 +31,8 @@ project_root = os.getcwd()
 datas += [
     (os.path.join(project_root, 'bin'), 'bin'),
     (os.path.join(project_root, 'templates'), 'templates'),
+    (os.path.join(project_root, 'assets'), 'assets'),
+    (os.path.join(project_root, 'locales'), 'locales'),
     (os.path.join(project_root, 'src'), 'src')  # Inclusione esplicita del codice sorgente se serve riflessione
 ]
 

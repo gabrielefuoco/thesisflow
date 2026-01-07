@@ -1,220 +1,164 @@
 
 import customtkinter as ctk
-from src.engine.models import Chapter
+import tkinter as tk
 from typing import Callable
+from pathlib import Path
+from src.engine.models import Chapter
 from src.utils.i18n import I18N
+from src.ui.theme import Theme
+from src.utils.icons import IconFactory
+from src.ui.tooltip import ToolTip
 
-import tkinter as tk # For Menu
+class AccordionSection(ctk.CTkFrame):
+    def __init__(self, master, title, icon_name="folder", is_open=True, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.is_open = is_open
+        self.title = title
+        
+        # Header (Clickable)
+        self.header = ctk.CTkButton(self, text=title, anchor="w", 
+                                    fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER,
+                                    text_color=Theme.TEXT_DIM, font=("Segoe UI", 12, "bold"),
+                                    command=self.toggle)
+        self.header.pack(fill="x")
+        
+        # Content Container
+        self.content = ctk.CTkFrame(self, fg_color="transparent")
+        if is_open:
+            self.content.pack(fill="both", expand=True)
+            
+        self.update_icon()
+        
+    def toggle(self):
+        self.is_open = not self.is_open
+        if self.is_open:
+            self.content.pack(fill="both", expand=True)
+        else:
+            self.content.pack_forget()
+        self.update_icon()
+
+    def update_icon(self):
+        icon = "chevron_down" if self.is_open else "chevron_right"
+        self.header.configure(image=IconFactory.get_icon(icon, size=(12,12)))
 
 class SidebarFrame(ctk.CTkFrame):
-    def __init__(self, master, on_chapter_select: Callable[[Chapter], None], on_add_chapter: Callable[[], None], on_move_chapter: Callable[[str], None], on_show_bib: Callable[[], None], on_open_settings: Callable[[], None], on_rename_chapter: Callable[[Chapter], None] = None, on_delete_chapter: Callable[[Chapter], None] = None, **kwargs):
-        super().__init__(master, width=200, corner_radius=0, **kwargs)
+    def __init__(self, master, on_chapter_select: Callable[[Chapter], None], on_add_chapter, on_move_chapter, on_show_bib, on_open_settings, on_rename_chapter=None, on_delete_chapter=None, **kwargs):
+        super().__init__(master, width=250, corner_radius=0, fg_color=Theme.COLOR_PANEL, **kwargs)
+        
         self.on_chapter_select = on_chapter_select
         self.on_add_chapter = on_add_chapter
-        self.on_move_chapter = on_move_chapter # 'up' or 'down'
-        self.on_show_bib = on_show_bib
+        self.on_move_chapter = on_move_chapter
         self.on_show_bib = on_show_bib
         self.on_open_settings = on_open_settings
         self.on_rename_chapter = on_rename_chapter
         self.on_delete_chapter = on_delete_chapter
-        self.on_export_as = kwargs.get("on_export_as") # New callback
-        
-        self.project_root = None # Needs to be set!
         
         self.selected_chapter_id = None
+        self.project_root = None # Set later via refresh
 
-        self.grid_rowconfigure(2, weight=1) # List expands
+        self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
+        
+        # --- Header ---
+        self.logo_frame = ctk.CTkFrame(self, fg_color="transparent", height=60)
+        self.logo_frame.grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(self.logo_frame, text="ThesisFlow", font=("Segoe UI", 18, "bold"), text_color=Theme.TEXT_MAIN).pack(padx=20, pady=20, anchor="w")
 
-        # Logo / Title
-        self.logo_label = ctk.CTkLabel(self, text="ThesisFlow", font=ctk.CTkFont(size=20, weight="bold"))
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
+        # --- Content (Scrollable) ---
+        self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_container.grid(row=1, column=0, sticky="nsew")
+        
+        # Section: Chapters
+        self.sec_chapters = AccordionSection(self.scroll_container, "CAPITOLI", is_open=True)
+        self.sec_chapters.pack(fill="x", pady=5)
+        
+        # Section: Assets
+        self.sec_assets = AccordionSection(self.scroll_container, "ASSETS", is_open=False)
+        self.sec_assets.pack(fill="x", pady=5)
+        
+        # --- Footer ---
+        self.footer = ctk.CTkFrame(self, fg_color=Theme.COLOR_BG, height=50, corner_radius=0)
+        self.footer.grid(row=2, column=0, sticky="ew")
+        
+        # Settings & Bib & Actions
+        self.create_footer_button("settings", self.on_open_settings, "Impostazioni")
+        self.create_footer_button("file", self.on_show_bib, "Bibliografia") # Using file/book icon
+        self.create_footer_button("plus", self.on_add_chapter, "Nuovo Capitolo") # Shortcut
+        self.create_footer_button("play", self.handle_compile_shortcut, "Compila PDF")
 
-        # Add Chapter Button
-        self.btn_add = ctk.CTkButton(self, text="+ Nuovo Capitolo", command=self.on_add_chapter)
-        self.btn_add.grid(row=1, column=0, padx=10, pady=10)
-        
-        from src.utils.icons import IconFactory
-        from src.ui.tooltip import ToolTip
-        
-        # Actions Row
-        self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.actions_frame.grid(row=1, column=0, padx=5, pady=5)
-        
-        self.btn_add = ctk.CTkButton(self.actions_frame, text="", image=IconFactory.get_icon("plus"), width=30, command=self.on_add_chapter)
-        self.btn_add.pack(side="left", padx=2)
-        ToolTip(self.btn_add, I18N.t("btn_new_chapter"))
-        
-        self.btn_up = ctk.CTkButton(self.actions_frame, text="", image=IconFactory.get_icon("up"), width=30, command=lambda: self.on_move_chapter("up"))
-        self.btn_up.pack(side="left", padx=2)
-        ToolTip(self.btn_up, I18N.t("ctx_up", "Su")) # Missing key, define later or use default
-        
-        self.btn_down = ctk.CTkButton(self.actions_frame, text="", image=IconFactory.get_icon("down"), width=30, command=lambda: self.on_move_chapter("down"))
-        self.btn_down.pack(side="left", padx=2)
-        ToolTip(self.btn_down, I18N.t("ctx_down", "Giù"))
-        
-        # Tabview for Content
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.grid(row=2, column=0, sticky="nsew", padx=5)
-        self.tabview.add(I18N.t("sidebar_title"))
-        self.tabview.add(I18N.t("sidebar_assets"))
-        
-        # --- TAB: Structure ---
-        self.tab_struct = self.tabview.tab(I18N.t("sidebar_title"))
-        self.tab_struct.grid_columnconfigure(0, weight=1)
-        self.tab_struct.grid_rowconfigure(0, weight=1) # List expands
-
-        self.chapter_list = ctk.CTkScrollableFrame(self.tab_struct, fg_color="transparent")
-        self.chapter_list.pack(fill="both", expand=True)
-
-        # --- TAB: Assets ---
-        self.tab_assets = self.tabview.tab(I18N.t("sidebar_assets"))
-        self.tab_assets.grid_columnconfigure(0, weight=1)
-        self.tab_assets.grid_rowconfigure(0, weight=1)
-        
-        self.asset_list = ctk.CTkScrollableFrame(self.tab_assets, fg_color="transparent")
-        self.asset_list.pack(fill="both", expand=True)
-        ctk.CTkButton(self.tab_assets, text="🔄 Aggiorna", command=self.refresh_assets, height=20).pack(pady=5)
-        
-        # Bottom Actions
-        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.bottom_frame.grid(row=3, column=0, sticky="ew", pady=10)
-        
-        self.btn_bib = ctk.CTkButton(self.bottom_frame, text=I18N.t("btn_bib"), fg_color="gray", command=self.on_show_bib)
-        self.btn_bib.pack(padx=10, pady=5)
-
-        self.btn_settings = ctk.CTkButton(self.bottom_frame, text=I18N.t("btn_settings"), fg_color="gray", command=self.on_settings)
-        self.btn_settings.pack(padx=10, pady=5)
-        
-        self.btn_close = ctk.CTkButton(self.bottom_frame, text=I18N.t("btn_close_project"), fg_color="darkred", hover_color="red", command=self.on_close_project)
-        self.btn_close.pack(padx=10, pady=(5, 10))
-        
-        # New Export Menu
-        self.btn_export_menu = ctk.CTkOptionMenu(self.bottom_frame, values=["Export PDF", "Export DOCX", "Export LaTeX"], command=self.handle_export_menu)
-        self.btn_export_menu.set("Export As...")
-        self.btn_export_menu.pack(padx=10, pady=5)
-        
-    def handle_export_menu(self, choice):
-        fmt = "pdf"
-        if "DOCX" in choice: fmt = "docx"
-        if "LaTeX" in choice: fmt = "tex"
-        
-        # Trigger export in App
-        # Need to signal app. Hack access master.master
+    def handle_compile_shortcut(self):
         if hasattr(self.master.master, "on_compile"):
-            # We need to pass format. Existing on_compile takes no args? 
-            # We should probably modify App.on_compile to take format.
-             self.master.master.on_compile(fmt)
-             
-        self.btn_export_menu.set("Export As...")
+            self.master.master.on_compile()
 
-        # Appearance Mode
-        self.lbl_mode = ctk.CTkLabel(self.bottom_frame, text="Tema:", font=("Arial", 10))
-        self.lbl_mode.pack(pady=(5,0))
-        self.option_mode = ctk.CTkOptionMenu(self.bottom_frame, values=["System", "Dark", "Light"], 
-                                             command=self.change_appearance_mode, width=100)
-        self.option_mode.pack(padx=10, pady=5)
-
-    def on_close_project(self):
-         # Need access to App.close_project
-         if hasattr(self.master.master, "close_project"):
-             self.master.master.close_project()
-
-    def refresh_assets(self):
-        # Clear
-        for widget in self.asset_list.winfo_children():
-            widget.destroy()
-            
-        # Get Assets from Project Manager (via App)
-        # Ideally Sidebar should receive PM or path, or call callback.
-        # Hack: access master.master.pm
-        try:
-            pm = self.master.master.pm
-            if not pm.current_project_path: return
-            
-            assets_dir = pm.current_project_path / "assets"
-            if not assets_dir.exists(): return
-            
-            for f in assets_dir.iterdir():
-                if f.is_file():
-                    btn = ctk.CTkButton(self.asset_list, text=f.name, anchor="w", fg_color="transparent", border_width=1,
-                                        command=lambda n=f.name: self.insert_asset(n))
-                    btn.pack(fill="x", pady=2)
-        except Exception as e:
-            print(f"Error loading assets: {e}")
-
-    def insert_asset(self, filename):
-        # Insert markdown to clipboard or editor
-        md = f"![Desc](assets/{filename})"
-        # Insert to editor
-        # Hacky access to app
-        try:
-             self.master.master.editor.insert_at_cursor(md)
-        except:
-             pass
-
-    def change_appearance_mode(self, new_mode: str):
-        ctk.set_appearance_mode(new_mode)
-
-    def on_settings(self):
-        # We need to access the app or project manager. 
-        # The Sidebar doesn't hold reference to PM directly, but it can call a callback or access master.
-        # Let's add a callback for settings.
-        if hasattr(self, 'on_open_settings'):
-            self.on_open_settings()
-
-
+    def create_footer_button(self, icon, command, tooltip):
+        btn = ctk.CTkButton(self.footer, text="", image=IconFactory.get_icon(icon, size=(16,16)), 
+                            width=40, height=40, fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER,
+                            command=command)
+        btn.pack(side="left", padx=2, expand=True)
+        ToolTip(btn, tooltip)
+        
     def update_chapters(self, chapters: list[Chapter]):
-        for widget in self.chapter_list.winfo_children():
+        # Clear content
+        for widget in self.sec_chapters.content.winfo_children():
             widget.destroy()
-
-        # We need project root to scan folders. Hack: access master.master.pm
+            
+        # Get PM reference
         pm = self.master.master.pm
-        if pm.current_project_path:
-             self.project_root = pm.current_project_path
+        self.project_root = pm.current_project_path
 
-        for i, chapter in enumerate(chapters):
-            # Chapter Container
-            chap_frame = ctk.CTkFrame(self.chapter_list, fg_color="transparent")
-            chap_frame.pack(fill="x", pady=2)
+        for chapter in chapters:
+            self.render_chapter_item(chapter)
 
-            # Main Chapter Button
-            btn = ctk.CTkButton(chap_frame, text=chapter.title, anchor="w",
-                                fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
-                                command=lambda c=chapter: self.on_chapter_select(c))
-            btn.pack(fill="x")
-            
-            # Context Menu Binding
-            btn.bind("<Button-3>", lambda event, c=chapter: self.show_context_menu(event, c))
-            
-            # Sub-files (if folder)
-            if self.project_root:
-                chap_path = self.project_root / "chapters" / chapter.filename
-                if chap_path.is_dir():
-                    # Scan for .md files
-                    from pathlib import Path
-                    # List master.md first? No, master opens with main button. List others.
-                    for f in sorted(chap_path.glob("*.md")):
-                        if f.name == "master.md": continue
-                        
-                        sub_btn = ctk.CTkButton(chap_frame, text=f"  ↳ {f.stem.replace('_', ' ')}", 
-                                              fg_color="transparent", 
-                                              text_color="gray",
-                                              anchor="w",
-                                              height=20,
-                                              font=("Arial", 11),
-                                              command=lambda p=f, c=chapter: self.load_file_trigger(p, c))
-                        sub_btn.pack(fill="x")
+    def render_chapter_item(self, chapter: Chapter):
+        # Item Container
+        frame = ctk.CTkFrame(self.sec_chapters.content, fg_color="transparent")
+        frame.pack(fill="x")
+        
+        # Selection Indicator (Left Border simulated)
+        is_selected = self.selected_chapter_id == chapter.id
+        bg_color = Theme.COLOR_PANEL_HOVER if is_selected else "transparent"
+        text_color = Theme.COLOR_ACCENT if is_selected else Theme.TEXT_MAIN
+        
+        btn = ctk.CTkButton(frame, text=chapter.title, anchor="w",
+                            fg_color=bg_color, hover_color=Theme.COLOR_PANEL_HOVER,
+                            text_color=text_color,
+                            font=("Segoe UI", 13),
+                            command=lambda c=chapter: self.on_chapter_click(c))
+        btn.pack(fill="x", padx=0)
+        
+        # Context Menu
+        btn.bind("<Button-3>", lambda event, c=chapter: self.show_context_menu(event, c))
+        
+        # Sub-files scan
+        if self.project_root:
+            chap_path = self.project_root / "chapters" / chapter.filename
+            if chap_path.is_dir():
+                for f in sorted(chap_path.glob("*.md")):
+                    if f.name == "master.md": continue
+                    # Sub-item
+                    sub_btn = ctk.CTkButton(frame, text=f"  {f.stem.replace('_', ' ')}", 
+                                          fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER,
+                                          text_color=Theme.TEXT_DIM,
+                                          anchor="w", height=24, font=("Segoe UI", 12),
+                                          command=lambda p=f, c=chapter: self.master.master.load_file(p, c))
+                    sub_btn.pack(fill="x")
 
-    def load_file_trigger(self, path, chapter):
-        # Call app.load_file
-        self.master.master.load_file(path, chapter)
+    def on_chapter_click(self, chapter):
+        self.selected_chapter_id = chapter.id
+        self.on_chapter_select(chapter)
+        # Re-render to show selection state (simplified)
+        # Ideally we just update the specific widget, but full refresh is safer for now
+        self.update_chapters(self.master.master.pm.manifest.chapters)
 
     def show_context_menu(self, event, chapter):
-        menu = tk.Menu(self, tearoff=0)
+        menu = tk.Menu(self, tearoff=0, bg=Theme.COLOR_PANEL, fg="white") # Tk menu theming is limited
         menu.add_command(label="Aggiungi Sezione", command=lambda: self.add_subsection_dialog(chapter))
-        menu.add_command(label="Rinomina Capitolo", command=lambda: self.on_rename_chapter(chapter) if self.on_rename_chapter else None)
-        menu.add_command(label="Elimina Capitolo", command=lambda: self.on_delete_chapter(chapter) if self.on_delete_chapter else None)
+        menu.add_command(label="Rinomina", command=lambda: self.on_rename_chapter(chapter) if self.on_rename_chapter else None)
+        menu.add_command(label="Sposta Su", command=lambda: self.on_move_chapter("up"))
+        menu.add_command(label="Sposta Giù", command=lambda: self.on_move_chapter("down"))
+        menu.add_separator()
+        menu.add_command(label="Elimina", command=lambda: self.on_delete_chapter(chapter) if self.on_delete_chapter else None)
+        
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -225,5 +169,8 @@ class SidebarFrame(ctk.CTkFrame):
         name = dialog.get_input()
         if name:
              self.master.master.pm.create_subsection(chapter, name)
-             # Refresh
-             self.master.master.refresh_sidebar()
+             self.update_chapters(self.master.master.pm.manifest.chapters)
+
+    def refresh_assets(self): # Called by someone? Or manual?
+        # TODO: Implement Asset listing similar to chapters
+        pass
