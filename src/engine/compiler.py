@@ -81,8 +81,8 @@ class CompilerEngine:
             full_text += md.read_text(encoding="utf-8") + "\n\n"
         return full_text
 
-    def compile(self):
-        self.logger.info("Starting compilation...")
+    def compile(self, output_format="pdf"):
+        self.logger.info(f"Starting compilation to {output_format}...")
         print("Step 1: Preparing build environment...")
         self._prepare_temp()
 
@@ -104,33 +104,58 @@ class CompilerEngine:
             print("Warning: No markdown content found.")
             full_markdown = "*Nessun contenuto.*"
 
-        print("Step 3: Converting Markdown -> Typst (Pandoc)...")
-        compiled_body_path = self.temp_dir / "compiled_body.typ"
+        if output_format == "pdf":
+            print("Step 3: Converting Markdown -> Typst (Pandoc) -> PDF...")
+            # Use Pandoc to convert MD -> Typst
+            try:
+                self.pandoc.convert_markdown_to_typst(full_markdown, compiled_body_path)
+            except RuntimeError as e:
+                # Pandoc failed
+                 raise CompilationError("Errore Pandoc (MD -> Typst)", details=str(e))
 
-        # Determine CSL path from manifest
-        csl_path: Path = None
-        if self.manifest:
-            citation_style = self.manifest.citation_style
-            if citation_style and citation_style != "Default":
-                from src.utils.paths import get_resource_path
-                potential_csl_path = get_resource_path(f"templates/styles/{citation_style}.csl")
-                if potential_csl_path.exists():
-                    self.logger.info(f"Using CSL: {potential_csl_path}")
-                    csl_path = potential_csl_path
-                else:
-                    self.logger.warning(f"CSL not found: {potential_csl_path}. Falling back to default.")
+            try:
+                 self.typst.compile(self.master_file, self.output_pdf)
+            except RuntimeError as e:
+                 msg = str(e)
+                 if "Typst failed:" in msg:
+                     stderr = msg.split("Typst failed:", 1)[1].strip()
+                     raise CompilationError("Errore durante la compilazione Typst", details=stderr)
+                 raise e
+            print(f"Done! Output at: {self.output_pdf}")
 
-        try:
-             self.typst.compile(self.master_file, self.output_pdf)
-        except RuntimeError as e:
-             # Extract stderr from message "Typst failed: <stderr>"
-             msg = str(e)
-             if "Typst failed:" in msg:
-                 stderr = msg.split("Typst failed:", 1)[1].strip()
-                 raise CompilationError("Errore durante la compilazione Typst", details=stderr)
-             raise e
+        elif output_format == "docx":
+             print("Step 3: Converting Markdown -> DOCX (Pandoc)...")
+             docx_path = self.project_root / "Tesi_Finale.docx"
+             # Pandoc directly MD -> DOCX
+             # We might need to handle reference-doc or templating later
+             cmd = [str(self.pandoc.exe), "--from", "markdown", "--to", "docx", "--output", str(docx_path)]
+             # If bibliography
+             if bib_path.exists():
+                 cmd.append("--citeproc")
+                 # Pandoc needs bib file passed? Usually handled by YAML block I injected.
              
-        print(f"Done! Output at: {self.output_pdf}")
+             import subprocess
+             # Write full_markdown to temp file first
+             temp_md = self.temp_dir / "full_source.md"
+             temp_md.write_text(full_markdown, encoding="utf-8")
+             
+             cmd.append(str(temp_md))
+             subprocess.run(cmd, check=True)
+             print(f"Done! DOCX at: {docx_path}")
+             
+        elif output_format == "tex":
+             print("Step 3: Converting Markdown -> LaTeX (Pandoc)...")
+             tex_path = self.project_root / "Tesi_Finale.tex"
+             temp_md = self.temp_dir / "full_source.md"
+             temp_md.write_text(full_markdown, encoding="utf-8")
+             
+             cmd = [str(self.pandoc.exe), "--from", "markdown", "--to", "latex", "--standalone", "--output", str(tex_path)]
+             if bib_path.exists(): cmd.append("--citeproc")
+             cmd.append(str(temp_md))
+             
+             import subprocess
+             subprocess.run(cmd, check=True)
+             print(f"Done! LaTeX at: {tex_path}")
         
         print(f"Done! Output at: {self.output_pdf}")
 

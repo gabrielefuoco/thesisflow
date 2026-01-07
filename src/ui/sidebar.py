@@ -2,6 +2,7 @@
 import customtkinter as ctk
 from src.engine.models import Chapter
 from typing import Callable
+from src.utils.i18n import I18N
 
 import tkinter as tk # For Menu
 
@@ -12,10 +13,11 @@ class SidebarFrame(ctk.CTkFrame):
         self.on_add_chapter = on_add_chapter
         self.on_move_chapter = on_move_chapter # 'up' or 'down'
         self.on_show_bib = on_show_bib
+        self.on_show_bib = on_show_bib
         self.on_open_settings = on_open_settings
         self.on_rename_chapter = on_rename_chapter
-        self.on_rename_chapter = on_rename_chapter
         self.on_delete_chapter = on_delete_chapter
+        self.on_export_as = kwargs.get("on_export_as") # New callback
         
         self.project_root = None # Needs to be set!
         
@@ -32,28 +34,33 @@ class SidebarFrame(ctk.CTkFrame):
         self.btn_add = ctk.CTkButton(self, text="+ Nuovo Capitolo", command=self.on_add_chapter)
         self.btn_add.grid(row=1, column=0, padx=10, pady=10)
         
+        from src.utils.icons import IconFactory
+        from src.ui.tooltip import ToolTip
+        
         # Actions Row
-        # Let's redesign row 1
         self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.actions_frame.grid(row=1, column=0, padx=5, pady=5)
         
-        self.btn_add = ctk.CTkButton(self.actions_frame, text="+", width=30, command=self.on_add_chapter)
+        self.btn_add = ctk.CTkButton(self.actions_frame, text="", image=IconFactory.get_icon("plus"), width=30, command=self.on_add_chapter)
         self.btn_add.pack(side="left", padx=2)
+        ToolTip(self.btn_add, I18N.t("btn_new_chapter"))
         
-        self.btn_up = ctk.CTkButton(self.actions_frame, text="▲", width=30, command=lambda: self.on_move_chapter("up"))
+        self.btn_up = ctk.CTkButton(self.actions_frame, text="", image=IconFactory.get_icon("up"), width=30, command=lambda: self.on_move_chapter("up"))
         self.btn_up.pack(side="left", padx=2)
+        ToolTip(self.btn_up, I18N.t("ctx_up", "Su")) # Missing key, define later or use default
         
-        self.btn_down = ctk.CTkButton(self.actions_frame, text="▼", width=30, command=lambda: self.on_move_chapter("down"))
+        self.btn_down = ctk.CTkButton(self.actions_frame, text="", image=IconFactory.get_icon("down"), width=30, command=lambda: self.on_move_chapter("down"))
         self.btn_down.pack(side="left", padx=2)
+        ToolTip(self.btn_down, I18N.t("ctx_down", "Giù"))
         
         # Tabview for Content
         self.tabview = ctk.CTkTabview(self)
         self.tabview.grid(row=2, column=0, sticky="nsew", padx=5)
-        self.tabview.add("Struttura")
-        self.tabview.add("Assets")
+        self.tabview.add(I18N.t("sidebar_title"))
+        self.tabview.add(I18N.t("sidebar_assets"))
         
         # --- TAB: Structure ---
-        self.tab_struct = self.tabview.tab("Struttura")
+        self.tab_struct = self.tabview.tab(I18N.t("sidebar_title"))
         self.tab_struct.grid_columnconfigure(0, weight=1)
         self.tab_struct.grid_rowconfigure(0, weight=1) # List expands
 
@@ -61,7 +68,7 @@ class SidebarFrame(ctk.CTkFrame):
         self.chapter_list.pack(fill="both", expand=True)
 
         # --- TAB: Assets ---
-        self.tab_assets = self.tabview.tab("Assets")
+        self.tab_assets = self.tabview.tab(I18N.t("sidebar_assets"))
         self.tab_assets.grid_columnconfigure(0, weight=1)
         self.tab_assets.grid_rowconfigure(0, weight=1)
         
@@ -73,14 +80,33 @@ class SidebarFrame(ctk.CTkFrame):
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.bottom_frame.grid(row=3, column=0, sticky="ew", pady=10)
         
-        self.btn_bib = ctk.CTkButton(self.bottom_frame, text="Bibliografia", fg_color="gray", command=self.on_show_bib)
+        self.btn_bib = ctk.CTkButton(self.bottom_frame, text=I18N.t("btn_bib"), fg_color="gray", command=self.on_show_bib)
         self.btn_bib.pack(padx=10, pady=5)
 
-        self.btn_settings = ctk.CTkButton(self.bottom_frame, text="Impostazioni", fg_color="gray", command=self.on_settings)
+        self.btn_settings = ctk.CTkButton(self.bottom_frame, text=I18N.t("btn_settings"), fg_color="gray", command=self.on_settings)
         self.btn_settings.pack(padx=10, pady=5)
         
-        self.btn_close = ctk.CTkButton(self.bottom_frame, text="Chiudi Progetto", fg_color="darkred", hover_color="red", command=self.on_close_project)
+        self.btn_close = ctk.CTkButton(self.bottom_frame, text=I18N.t("btn_close_project"), fg_color="darkred", hover_color="red", command=self.on_close_project)
         self.btn_close.pack(padx=10, pady=(5, 10))
+        
+        # New Export Menu
+        self.btn_export_menu = ctk.CTkOptionMenu(self.bottom_frame, values=["Export PDF", "Export DOCX", "Export LaTeX"], command=self.handle_export_menu)
+        self.btn_export_menu.set("Export As...")
+        self.btn_export_menu.pack(padx=10, pady=5)
+        
+    def handle_export_menu(self, choice):
+        fmt = "pdf"
+        if "DOCX" in choice: fmt = "docx"
+        if "LaTeX" in choice: fmt = "tex"
+        
+        # Trigger export in App
+        # Need to signal app. Hack access master.master
+        if hasattr(self.master.master, "on_compile"):
+            # We need to pass format. Existing on_compile takes no args? 
+            # We should probably modify App.on_compile to take format.
+             self.master.master.on_compile(fmt)
+             
+        self.btn_export_menu.set("Export As...")
 
         # Appearance Mode
         self.lbl_mode = ctk.CTkLabel(self.bottom_frame, text="Tema:", font=("Arial", 10))

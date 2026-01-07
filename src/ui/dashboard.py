@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable
 from src.engine.models import ProjectManifest
 from src.utils.paths import get_templates_dir
+from src.utils.i18n import I18N
 
 class DashboardFrame(ctk.CTkFrame):
     def __init__(self, master, project_manager, on_project_selected: Callable[[Path], None], **kwargs):

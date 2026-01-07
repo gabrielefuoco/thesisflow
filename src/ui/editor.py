@@ -76,12 +76,58 @@ class EditorFrame(ctk.CTkFrame):
         if self.on_change:
             self.on_change() 
     
-    def perform_updates(self):
+    def perform_updates(self, event=None):
         self.highlight_syntax()
         self.update_word_count()
+        self.redraw_lines()
+        self.update_outline_data()
         if self.preview_visible:
             self.update_preview()
         self._debounce_timer = None
+
+    def update_outline_data(self):
+        # Scan for headings
+        content = self.get_text()
+        headings = []
+        import re
+        # Find headers and their line positions
+        # Actually getting efficient line index from regex on string is tricky without scanning.
+        # Let's iterate lines.
+        lines = content.split('\n')
+        current_char_count = 0
+        
+        for i, line in enumerate(lines):
+            line_len = len(line) + 1 # + newline
+            if line.strip().startswith('#'):
+                # Level
+                level = 0
+                for char in line:
+                    if char == '#': level += 1
+                    else: break
+                
+                text = line.strip('#').strip()
+                # Tkinter index: "line.0"
+                index = f"{i+1}.0"
+                headings.append((level, text, index))
+            current_char_count += line_len
+            
+        # Send to app -> outline
+        if hasattr(self.master.master, "outline"):
+            self.master.master.outline.update_outline(headings)
+
+    def scroll_to(self, index):
+        self.textbox.see(index)
+        # Highlight line briefly?
+        self.textbox.focus_set()
+        
+    def redraw_lines(self, event=None):
+        self.line_numbers.redraw(self.textbox._textbox)
+
+    def on_scroll_text(self, *args):
+        # Allow default scroll but also trigger redraw logic if possible?
+        # Actually CTkTextbox handles scrollbar internally.
+        # We just rely on events.
+        self.redraw_lines()
 
     def update_word_count(self):
         text = self.textbox.get("1.0", "end-1c")
@@ -221,3 +267,20 @@ class EditorFrame(ctk.CTkFrame):
             key = res.split(' ')[0]
             self.textbox.insert("insert", key)
             self.close_suggestions()
+
+class LineNumberCanvas(tk.Canvas):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, background='#e0e0e0', highlightthickness=0, **kwargs)
+        self.textwidget = None
+
+    def redraw(self, textwidget):
+        self.delete("all")
+        
+        i = textwidget.index("@0,0")
+        while True:
+            dline= textwidget.dlineinfo(i)
+            if dline is None: break
+            y = dline[1]
+            linenum = str(i).split(".")[0]
+            self.create_text(25, y, anchor="ne", text=linenum, font=("Consolas", 10), fill="gray")
+            i = textwidget.index(f"{i}+1line")
