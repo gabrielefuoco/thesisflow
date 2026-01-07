@@ -9,6 +9,7 @@ from src.ui.toolbar import ToolbarFrame
 from src.ui.dashboard import DashboardFrame
 from src.ui.sidebar import SidebarFrame
 from src.ui.bibliography import BibliographyFrame
+from src.ui.console import ConsolePanel
 from src.engine.compiler import CompilerEngine, CompilationError
 from src.engine.project_manager import ProjectManager
 from src.utils.logger import setup_logger, get_logger
@@ -29,7 +30,9 @@ class ThesisFlowApp(ctk.CTk):
         self.check_dependencies()
 
         self.pm = ProjectManager()
-        self.current_chapter = None
+        self.pm = ProjectManager()
+        self.current_chapter = None # Parent chapter object if applicable
+        self.current_file_path = None # Absolute path to currently edited file
         self.view_mode = "editor" # or 'bibliography'
         self.is_dirty = False
         
@@ -76,7 +79,14 @@ class ThesisFlowApp(ctk.CTk):
         self.editor = EditorFrame(self.content_area, on_change=self.mark_dirty, get_citations_callback=self.get_citation_keys)
         self.editor.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
+        self.editor.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+
         self.bib_editor = None # Lazy init
+        
+        # Console (Bottom)
+        self.console = ConsolePanel(self.content_area)
+        self.console.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        self.content_area.grid_rowconfigure(2, weight=0) # Console fixed/resizable height
         
         # --- End Views ---
     
@@ -93,9 +103,9 @@ class ThesisFlowApp(ctk.CTk):
         self.is_dirty = True
     
     def autosave_loop(self):
-        if self.is_dirty and self.view_mode == "editor" and self.current_chapter:
-            print("Autosaving...") # Debug
-            self.save_current_chapter()
+        if self.is_dirty and self.view_mode == "editor" and self.current_file_path:
+            # print("Autosaving...") 
+            self.save_current_file()
         self.after(self.autosave_interval, self.autosave_loop)
 
     def open_project(self, path: Path):
@@ -113,6 +123,22 @@ class ThesisFlowApp(ctk.CTk):
                 
         except Exception as e:
             msg.showerror("Errore Caricamento", str(e))
+
+    def close_project(self):
+        if self.is_dirty:
+            self.save_current_chapter()
+        
+        self.pm.manifest = None
+        self.current_chapter = None
+        
+        self.main_interface.grid_forget()
+        self.dashboard.grid(row=0, column=0, sticky="nsew")
+        self.dashboard.refresh_list() # Reload projects
+        self.title("ThesisFlow - Write Markdown, Publish Typst")
+        
+        # Clear log/console
+        if hasattr(self, 'console'):
+            self.console.clear()
 
     def show_editor_interface(self):
         self.dashboard.grid_forget()
@@ -157,11 +183,15 @@ class ThesisFlowApp(ctk.CTk):
         self.bib_editor.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
 
-    def save_current_chapter(self):
-        if self.current_chapter:
+    def save_current_file(self):
+        if self.current_file_path:
             text = self.editor.get_text()
-            self.pm.update_chapter_content(self.current_chapter, text)
+            self.current_file_path.write_text(text, encoding="utf-8")
             self.is_dirty = False
+            
+    # Compatibility mapping
+    def save_current_chapter(self):
+        self.save_current_file()
 
     def add_chapter_dialog(self):
         dialog = ctk.CTkInputDialog(text="Titolo del Capitolo:", title="Nuovo Capitolo")
@@ -201,6 +231,7 @@ class ThesisFlowApp(ctk.CTk):
             if self.current_chapter and self.current_chapter.id == chapter.id:
                 self.current_chapter = None
                 self.editor.set_text("")
+                self.current_file_path = None
             self.refresh_sidebar()
 
 
@@ -255,6 +286,12 @@ class ThesisFlowApp(ctk.CTk):
 
         threading.Thread(target=run_compile, daemon=True).start()
 
+        threading.Thread(target=run_compile, daemon=True).start()
+    
+    def on_toggle_console(self):
+        # Optional toolbar button to toggle
+        pass
+        
     def _on_compile_finished(self):
         self.toolbar.btn_compile.configure(state="normal", text="COMPILA PDF") # Assuming original text
 
@@ -291,5 +328,5 @@ class ThesisFlowApp(ctk.CTk):
 
     def on_close(self):
         if self.is_dirty:
-            self.save_current_chapter() # Force save
+            self.save_current_file() # Force save
         self.destroy()

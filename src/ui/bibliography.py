@@ -59,6 +59,14 @@ class CitationDialog(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="Tipo").pack(pady=5)
         ctk.CTkOptionMenu(self, variable=self.type_var, values=["article", "book", "website", "misc"]).pack(pady=5)
         
+        # DOI Lookup
+        frame_doi = ctk.CTkFrame(self)
+        frame_doi.pack(pady=10, fill="x", padx=20)
+        ctk.CTkLabel(frame_doi, text="Cerca DOI:").pack(side="left", padx=5)
+        self.entry_doi_search = ctk.CTkEntry(frame_doi, placeholder_text="10.1038/...")
+        self.entry_doi_search.pack(side="left", fill="x", expand=True, padx=5)
+        ctk.CTkButton(frame_doi, text="🔍", width=40, command=self.lookup_doi).pack(side="left", padx=5)
+
         self.fields = {}
         # Common fields
         for field in ["Key (es. smith2020)", "Title", "Author", "Year", "Publisher/Journal", "URL/DOI"]:
@@ -108,4 +116,61 @@ class CitationDialog(ctk.CTkToplevel):
         entry += "}"
         
         self.on_success(entry)
+        self.on_success(entry)
         self.destroy()
+
+    def lookup_doi(self):
+        doi = self.entry_doi_search.get().strip()
+        if not doi: return
+        
+        import urllib.request
+        import urllib.error
+        
+        # Crossref API Content Negotiation
+        url = f"https://doi.org/{doi}"
+        req = urllib.request.Request(url, headers={"Accept": "application/x-bibtex"})
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                bibtex = response.read().decode("utf-8")
+                self.parse_and_fill(bibtex)
+        except Exception as e:
+            msg.showerror("Errore DOI", f"Impossibile trovare il DOI.\n{e}")
+
+    def parse_and_fill(self, bibtex: str):
+        # Naive BibTeX parser
+        # Example: @article{key, title={...}, author={...}, ...}
+        import re
+        
+        # Detect type
+        m_type = re.search(r'@(\w+)\{', bibtex)
+        if m_type:
+            ctype = m_type.group(1).lower()
+            if ctype in ["article", "book", "misc"]:
+                 self.type_var.set(ctype)
+            else:
+                 self.type_var.set("misc") # Fallback
+        
+        # Helper to extract field
+        def get_field(name):
+            # Matches field = {value} or field = "value" or field = value
+            pat = rf"{name}\s*=\s*[\"{{]?(.*?)[\"}}],?\n"
+            m = re.search(pat, bibtex, re.IGNORECASE)
+            return m.group(1) if m else ""
+
+        # Fill fields
+        if "title" in self.fields: self.fields["title"].delete(0, tk.END); self.fields["title"].insert(0, get_field("title"))
+        if "author" in self.fields: self.fields["author"].delete(0, tk.END); self.fields["author"].insert(0, get_field("author"))
+        if "year" in self.fields: self.fields["year"].delete(0, tk.END); self.fields["year"].insert(0, get_field("year"))
+        if "publisher" in self.fields: 
+            pub = get_field("publisher") or get_field("journal")
+            self.fields["publisher"].delete(0, tk.END); self.fields["publisher"].insert(0, pub)
+        if "doi" in self.fields: self.fields["doi"].delete(0, tk.END); self.fields["doi"].insert(0, get_field("doi") or get_field("url"))
+        
+        # Key is defined in the first line @type{KEY,
+        m_key = re.search(r'@\w+\{([^,]+),', bibtex)
+        if m_key and "id" in self.fields:
+             self.fields["id"].delete(0, tk.END)
+             self.fields["id"].insert(0, m_key.group(1))
+
+        msg.showinfo("Successo", "Dati importati dal DOI!")

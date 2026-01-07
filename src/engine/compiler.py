@@ -26,18 +26,50 @@ class CompilerEngine:
     def _prepare_temp(self):
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
+    def _resolve_includes(self, content: str, base_path: Path) -> str:
+        """
+        Recursively replaces {{ include: filename.md }} with file content.
+        """
+        pattern = re.compile(r'\{\{\s*include:\s*["\']?(.*?)["\']?\s*\}\}')
+        
+        def replace_match(match):
+            filename = match.group(1).strip()
+            file_path = base_path / filename
+            
+            if file_path.exists():
+                sub_content = file_path.read_text(encoding="utf-8")
+                return self._resolve_includes(sub_content, base_path)
+            else:
+                self.logger.warning(f"Include file not found: {filename} in {base_path}")
+                return f"\n> **Errore: File mancante {filename}**\n"
+
+        return pattern.sub(replace_match, content)
+
     def _concatenate_chapters(self) -> str:
         if self.manifest:
-            # Use manifest order
             full_text = ""
             for chap in self.manifest.chapters:
-                filename = chap.filename
-                path = self.chapters_dir / filename
-                if path.exists():
-                    full_text += path.read_text(encoding="utf-8") + "\n\n"
+                path = self.chapters_dir / chap.filename
+                
+                chapter_content = ""
+                
+                if path.is_dir():
+                    # Folder Structure: Look for master.md
+                    master_file = path / "master.md"
+                    if master_file.exists():
+                        raw_content = master_file.read_text(encoding="utf-8")
+                        chapter_content = self._resolve_includes(raw_content, path)
+                    else:
+                        chapter_content = f"\n*Master file mancante in: {chap.filename}*\n"
+                elif path.exists():
+                    # Flat File Structure (Legacy)
+                    raw_content = path.read_text(encoding="utf-8")
+                    chapter_content = self._resolve_includes(raw_content, path.parent)
                 else:
-                    self.logger.warning(f"Chapter file missing (Ghost): {filename}")
-                    full_text += f"\n\n*Contenuto Mancante: {filename}*\n\n"
+                    self.logger.warning(f"Chapter file missing (Ghost): {chap.filename}")
+                    chapter_content = f"\n\n*Contenuto Mancante: {chap.filename}*\n\n"
+                
+                full_text += chapter_content + "\n\n"
             return full_text
 
         # Fallback: alphabetical (should rarely happen if manifest is passed)

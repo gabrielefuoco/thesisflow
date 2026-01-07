@@ -48,6 +48,13 @@ class EditorFrame(ctk.CTkFrame):
         self.textbox._textbox.tag_config("italic", font=("Consolas", 12, "italic"))
         self.textbox._textbox.tag_config("code", foreground="#00ff00", font=("Consolas", 12)) # Green code
 
+        self.textbox._textbox.tag_config("search", background="yellow", foreground="black")
+
+        self.textbox.bind("<Control-f>", self.open_find_dialog)
+        self.textbox.bind("<Control-b>", lambda e: self.master.master.toolbar.btn_bold.invoke())
+        self.textbox.bind("<Control-i>", lambda e: self.master.master.toolbar.btn_italic.invoke())
+        self.textbox.bind("<Control-s>", lambda e: self.master.master.on_compile() if False else self.master.master.save_current_chapter()) # Reuse app save
+        
         self.textbox.bind("<KeyRelease>", self.on_key_release)
         self.textbox.bind("<Key>", self.on_key_press)
 
@@ -79,7 +86,8 @@ class EditorFrame(ctk.CTkFrame):
     def update_word_count(self):
         text = self.textbox.get("1.0", "end-1c")
         words = len(text.split())
-        self.status_bar.configure(text=f"Parole: {words}")
+        chars = len(text) - text.count('\n')
+        self.status_bar.configure(text=f"Parole: {words} | Caratteri: {chars}")
 
     def highlight_syntax(self):
         text_widget = self.textbox._textbox
@@ -125,12 +133,15 @@ class EditorFrame(ctk.CTkFrame):
     def toggle_preview(self):
         self.preview_visible = not self.preview_visible
         if self.preview_visible:
-            self.grid_columnconfigure(1, weight=1)
+            # Split View Mode
+            self.grid_columnconfigure(0, weight=1) # Editor
+            self.grid_columnconfigure(1, weight=1) # Preview
             self.preview_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
             self.update_preview()
         else:
             self.preview_frame.grid_forget()
             self.grid_columnconfigure(1, weight=0)
+            self.grid_columnconfigure(0, weight=1)
 
     def update_preview(self):
         # Basic Markdown Rendering to Labels

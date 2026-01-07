@@ -14,7 +14,10 @@ class SidebarFrame(ctk.CTkFrame):
         self.on_show_bib = on_show_bib
         self.on_open_settings = on_open_settings
         self.on_rename_chapter = on_rename_chapter
+        self.on_rename_chapter = on_rename_chapter
         self.on_delete_chapter = on_delete_chapter
+        
+        self.project_root = None # Needs to be set!
         
         self.selected_chapter_id = None
 
@@ -43,10 +46,29 @@ class SidebarFrame(ctk.CTkFrame):
         self.btn_down = ctk.CTkButton(self.actions_frame, text="▼", width=30, command=lambda: self.on_move_chapter("down"))
         self.btn_down.pack(side="left", padx=2)
         
-        # Chapter List Container
-        self.chapter_list = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.chapter_list.grid(row=2, column=0, sticky="nsew")
+        # Tabview for Content
+        self.tabview = ctk.CTkTabview(self)
+        self.tabview.grid(row=2, column=0, sticky="nsew", padx=5)
+        self.tabview.add("Struttura")
+        self.tabview.add("Assets")
+        
+        # --- TAB: Structure ---
+        self.tab_struct = self.tabview.tab("Struttura")
+        self.tab_struct.grid_columnconfigure(0, weight=1)
+        self.tab_struct.grid_rowconfigure(0, weight=1) # List expands
 
+        self.chapter_list = ctk.CTkScrollableFrame(self.tab_struct, fg_color="transparent")
+        self.chapter_list.pack(fill="both", expand=True)
+
+        # --- TAB: Assets ---
+        self.tab_assets = self.tabview.tab("Assets")
+        self.tab_assets.grid_columnconfigure(0, weight=1)
+        self.tab_assets.grid_rowconfigure(0, weight=1)
+        
+        self.asset_list = ctk.CTkScrollableFrame(self.tab_assets, fg_color="transparent")
+        self.asset_list.pack(fill="both", expand=True)
+        ctk.CTkButton(self.tab_assets, text="🔄 Aggiorna", command=self.refresh_assets, height=20).pack(pady=5)
+        
         # Bottom Actions
         self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.bottom_frame.grid(row=3, column=0, sticky="ew", pady=10)
@@ -56,13 +78,54 @@ class SidebarFrame(ctk.CTkFrame):
 
         self.btn_settings = ctk.CTkButton(self.bottom_frame, text="Impostazioni", fg_color="gray", command=self.on_settings)
         self.btn_settings.pack(padx=10, pady=5)
+        
+        self.btn_close = ctk.CTkButton(self.bottom_frame, text="Chiudi Progetto", fg_color="darkred", hover_color="red", command=self.on_close_project)
+        self.btn_close.pack(padx=10, pady=(5, 10))
 
         # Appearance Mode
         self.lbl_mode = ctk.CTkLabel(self.bottom_frame, text="Tema:", font=("Arial", 10))
-        self.lbl_mode.pack(pady=(10,0))
+        self.lbl_mode.pack(pady=(5,0))
         self.option_mode = ctk.CTkOptionMenu(self.bottom_frame, values=["System", "Dark", "Light"], 
                                              command=self.change_appearance_mode, width=100)
         self.option_mode.pack(padx=10, pady=5)
+
+    def on_close_project(self):
+         # Need access to App.close_project
+         if hasattr(self.master.master, "close_project"):
+             self.master.master.close_project()
+
+    def refresh_assets(self):
+        # Clear
+        for widget in self.asset_list.winfo_children():
+            widget.destroy()
+            
+        # Get Assets from Project Manager (via App)
+        # Ideally Sidebar should receive PM or path, or call callback.
+        # Hack: access master.master.pm
+        try:
+            pm = self.master.master.pm
+            if not pm.current_project_path: return
+            
+            assets_dir = pm.current_project_path / "assets"
+            if not assets_dir.exists(): return
+            
+            for f in assets_dir.iterdir():
+                if f.is_file():
+                    btn = ctk.CTkButton(self.asset_list, text=f.name, anchor="w", fg_color="transparent", border_width=1,
+                                        command=lambda n=f.name: self.insert_asset(n))
+                    btn.pack(fill="x", pady=2)
+        except Exception as e:
+            print(f"Error loading assets: {e}")
+
+    def insert_asset(self, filename):
+        # Insert markdown to clipboard or editor
+        md = f"![Desc](assets/{filename})"
+        # Insert to editor
+        # Hacky access to app
+        try:
+             self.master.master.editor.insert_at_cursor(md)
+        except:
+             pass
 
     def change_appearance_mode(self, new_mode: str):
         ctk.set_appearance_mode(new_mode)
@@ -79,20 +142,62 @@ class SidebarFrame(ctk.CTkFrame):
         for widget in self.chapter_list.winfo_children():
             widget.destroy()
 
+        # We need project root to scan folders. Hack: access master.master.pm
+        pm = self.master.master.pm
+        if pm.current_project_path:
+             self.project_root = pm.current_project_path
+
         for i, chapter in enumerate(chapters):
-            btn = ctk.CTkButton(self.chapter_list, text=chapter.title, anchor="w",
+            # Chapter Container
+            chap_frame = ctk.CTkFrame(self.chapter_list, fg_color="transparent")
+            chap_frame.pack(fill="x", pady=2)
+
+            # Main Chapter Button
+            btn = ctk.CTkButton(chap_frame, text=chapter.title, anchor="w",
                                 fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
                                 command=lambda c=chapter: self.on_chapter_select(c))
-            btn.pack(fill="x", pady=2)
+            btn.pack(fill="x")
             
             # Context Menu Binding
             btn.bind("<Button-3>", lambda event, c=chapter: self.show_context_menu(event, c))
             
+            # Sub-files (if folder)
+            if self.project_root:
+                chap_path = self.project_root / "chapters" / chapter.filename
+                if chap_path.is_dir():
+                    # Scan for .md files
+                    from pathlib import Path
+                    # List master.md first? No, master opens with main button. List others.
+                    for f in sorted(chap_path.glob("*.md")):
+                        if f.name == "master.md": continue
+                        
+                        sub_btn = ctk.CTkButton(chap_frame, text=f"  ↳ {f.stem.replace('_', ' ')}", 
+                                              fg_color="transparent", 
+                                              text_color="gray",
+                                              anchor="w",
+                                              height=20,
+                                              font=("Arial", 11),
+                                              command=lambda p=f, c=chapter: self.load_file_trigger(p, c))
+                        sub_btn.pack(fill="x")
+
+    def load_file_trigger(self, path, chapter):
+        # Call app.load_file
+        self.master.master.load_file(path, chapter)
+
     def show_context_menu(self, event, chapter):
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Rinomina", command=lambda: self.on_rename_chapter(chapter) if self.on_rename_chapter else None)
-        menu.add_command(label="Elimina", command=lambda: self.on_delete_chapter(chapter) if self.on_delete_chapter else None)
+        menu.add_command(label="Aggiungi Sezione", command=lambda: self.add_subsection_dialog(chapter))
+        menu.add_command(label="Rinomina Capitolo", command=lambda: self.on_rename_chapter(chapter) if self.on_rename_chapter else None)
+        menu.add_command(label="Elimina Capitolo", command=lambda: self.on_delete_chapter(chapter) if self.on_delete_chapter else None)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def add_subsection_dialog(self, chapter):
+        dialog = ctk.CTkInputDialog(text="Nome Sezione:", title="Nuova Sezione")
+        name = dialog.get_input()
+        if name:
+             self.master.master.pm.create_subsection(chapter, name)
+             # Refresh
+             self.master.master.refresh_sidebar()

@@ -23,13 +23,29 @@ class ToolbarFrame(ctk.CTkFrame):
         self.btn_img = ctk.CTkButton(self, text="Img", width=50, fg_color="gray", command=self.on_image_click)
         self.btn_img.grid(row=0, column=3, padx=5, pady=5)
 
+        # Formatting Group 2
+        self.btn_h1 = ctk.CTkButton(self, text="H1", width=30, command=lambda: self.insert_md("# "))
+        self.btn_h1.grid(row=0, column=4, padx=2)
+        
+        self.btn_h2 = ctk.CTkButton(self, text="H2", width=30, command=lambda: self.insert_md("## "))
+        self.btn_h2.grid(row=0, column=5, padx=2)
+        
+        self.btn_list = ctk.CTkButton(self, text="List", width=40, command=lambda: self.insert_md("- "))
+        self.btn_list.grid(row=0, column=6, padx=2)
+        
+        self.btn_quote = ctk.CTkButton(self, text='""', width=30, command=lambda: self.insert_md("> "))
+        self.btn_quote.grid(row=0, column=7, padx=2)
+
         # Spacer
         self.spacer = ctk.CTkLabel(self, text="", width=20)
-        self.spacer.grid(row=0, column=4)
+        self.spacer.grid(row=0, column=8)
 
         # Compile Button (Right aligned? Or just next)
         self.btn_compile = ctk.CTkButton(self, text="COMPILA", fg_color="green", hover_color="darkgreen", command=self.command_compile)
-        self.btn_compile.grid(row=0, column=5, padx=20, pady=5)
+        self.btn_compile.grid(row=0, column=9, padx=20, pady=5)
+
+    def insert_md(self, text):
+        self.master.master.editor.insert_at_cursor(text)
 
     def on_image_click(self):
         from customtkinter import filedialog
