@@ -34,7 +34,6 @@ class PandocWrapper:
         ]
 
         # In a real app we might want to feed input via stdin to avoid temp files for input,
-        # but here we pass input_text via communicate.
         
         process = subprocess.run(
             cmd,
@@ -46,3 +45,22 @@ class PandocWrapper:
 
         if process.returncode != 0:
             raise RuntimeError(f"Pandoc failed: {process.stderr}")
+
+    def convert_to_typst(self, input_path: str, output_path: str, csl_path: str = None) -> bool:
+        """
+        Converts a file to Typst using Pandoc.
+        """
+        cmd = [
+            str(self.exe), # Changed from self.pandoc_path to self.exe for consistency
+            input_path,
+            "-o", output_path,
+            "--to=typst",
+            "--citeproc", # Enable bibliography processing
+        ]
+
+        if csl_path:
+             cmd.extend(["--csl", csl_path])
+
+        if not self.exe.exists(): # Changed from self.pandoc_path to self.exe for consistency
+            raise FileNotFoundError(f"Pandoc not found at {self.exe}") # Changed from self.pandoc_path to self.exe for consistency
+```

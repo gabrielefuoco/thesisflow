@@ -4,11 +4,15 @@ from src.engine.models import Chapter
 from typing import Callable
 
 class SidebarFrame(ctk.CTkFrame):
-    def __init__(self, master, on_chapter_select: Callable[[Chapter], None], on_add_chapter: Callable[[], None], on_show_bib: Callable[[], None], **kwargs):
+    def __init__(self, master, on_chapter_select: Callable[[Chapter], None], on_add_chapter: Callable[[], None], on_move_chapter: Callable[[str], None], on_show_bib: Callable[[], None], on_open_settings: Callable[[], None], **kwargs):
         super().__init__(master, width=200, corner_radius=0, **kwargs)
         self.on_chapter_select = on_chapter_select
         self.on_add_chapter = on_add_chapter
+        self.on_move_chapter = on_move_chapter # 'up' or 'down'
         self.on_show_bib = on_show_bib
+        self.on_open_settings = on_open_settings
+        
+        self.selected_chapter_id = None
 
         self.grid_rowconfigure(2, weight=1) # List expands
         self.grid_columnconfigure(0, weight=1)
@@ -21,6 +25,24 @@ class SidebarFrame(ctk.CTkFrame):
         self.btn_add = ctk.CTkButton(self, text="+ Nuovo Capitolo", command=self.on_add_chapter)
         self.btn_add.grid(row=1, column=0, padx=10, pady=10)
         
+        # Reorder Buttons (Small row)
+        self.reorder_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.reorder_frame.grid(row=1, column=0, sticky="s", pady=(40, 0)) # Overlay or separate row? 
+        # Actually easier to put row 1 as a frame containing Add and Move buttons
+        
+        # Let's redesign row 1
+        self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.actions_frame.grid(row=1, column=0, padx=5, pady=5)
+        
+        self.btn_add = ctk.CTkButton(self.actions_frame, text="+", width=30, command=self.on_add_chapter)
+        self.btn_add.pack(side="left", padx=2)
+        
+        self.btn_up = ctk.CTkButton(self.actions_frame, text="▲", width=30, command=lambda: self.on_move_chapter("up"))
+        self.btn_up.pack(side="left", padx=2)
+        
+        self.btn_down = ctk.CTkButton(self.actions_frame, text="▼", width=30, command=lambda: self.on_move_chapter("down"))
+        self.btn_down.pack(side="left", padx=2)
+        
         # Chapter List Container
         self.chapter_list = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.chapter_list.grid(row=2, column=0, sticky="nsew")
@@ -31,6 +53,17 @@ class SidebarFrame(ctk.CTkFrame):
         
         self.btn_bib = ctk.CTkButton(self.bottom_frame, text="Bibliografia", fg_color="gray", command=self.on_show_bib)
         self.btn_bib.pack(padx=10, pady=5)
+
+        self.btn_settings = ctk.CTkButton(self.bottom_frame, text="Impostazioni", fg_color="gray", command=self.on_settings)
+        self.btn_settings.pack(padx=10, pady=5)
+
+    def on_settings(self):
+        # We need to access the app or project manager. 
+        # The Sidebar doesn't hold reference to PM directly, but it can call a callback or access master.
+        # Let's add a callback for settings.
+        if hasattr(self, 'on_open_settings'):
+            self.on_open_settings()
+
 
     def update_chapters(self, chapters: list[Chapter]):
         for widget in self.chapter_list.winfo_children():

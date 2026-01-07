@@ -44,10 +44,10 @@ def build():
 
     # PyInstaller arguments
     args = [
-        str(project_root / "src" / "main_gui.py"),
+        str(project_root / "run.py"), # CHANGED: Use root run.py
         '--name=ThesisFlow',
         '--noconsole',
-        '--onedir', # CHANGED from --onefile for debugging/robustness
+        '--onedir', 
         '--clean',
         f'--add-data={ctk_path};customtkinter/',
         f'--add-data={bin_path};bin/',
@@ -56,6 +56,12 @@ def build():
         # Simplified mapping
         f'--add-data={tcl_root};tcl/',
         f'--add-data={tk_root};tk/',
+        
+        # Ensure project root is in path so 'src.engine' imports resolve
+        f'--paths={project_root}',
+        
+        # NUCLEAR OPTION: Collect EVERYTHING from src
+        '--collect-all=src',
     ]
 
 

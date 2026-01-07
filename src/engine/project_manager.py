@@ -91,9 +91,34 @@ class ProjectManager:
 
     def update_chapter_content(self, chapter: Chapter, content: str):
         if not self.current_project_path:
-             return
-        path = self.current_project_path / "chapters" / chapter.filename
-        path.write_text(content, encoding="utf-8")
+            raise RuntimeError("No project loaded")
+        
+        # Save content
+        file_path = self.current_project_path / "chapters" / f"{chapter.id}.md"
+        file_path.write_text(content, encoding="utf-8")
+
+    def move_chapter(self, chapter: Chapter, direction: str):
+        """Moves a chapter 'up' or 'down' in the list."""
+        if not self.manifest: return
+        
+        idx = -1
+        for i, c in enumerate(self.manifest.chapters):
+            if c.id == chapter.id:
+                idx = i
+                break
+        
+        if idx == -1: return
+
+        new_idx = idx
+        if direction == "up" and idx > 0:
+            new_idx = idx - 1
+        elif direction == "down" and idx < len(self.manifest.chapters) - 1:
+            new_idx = idx + 1
+        
+        if new_idx != idx:
+            # Swap
+            self.manifest.chapters[idx], self.manifest.chapters[new_idx] = self.manifest.chapters[new_idx], self.manifest.chapters[idx]
+            self._save_manifest(self.current_project_path, self.manifest)
 
     def get_chapter_content(self, chapter: Chapter) -> str:
         if not self.current_project_path:
@@ -108,16 +133,67 @@ class ProjectManager:
         path.write_text(json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
 
     def add_asset(self, source_path: Path) -> str:
-        """Copies an asset to the project's asset folder and returns specific markdown-ready path."""
+        """Copies an asset file to the project assets directory and returns relative path."""
         if not self.current_project_path:
-            raise RuntimeError("No project loaded.")
+            raise ValueError("No project loaded")
         
         assets_dir = self.current_project_path / "assets"
         assets_dir.mkdir(exist_ok=True)
         
-        target_path = assets_dir / source_path.name
-        # Simple collision avoidance could be added here
-        shutil.copy(source_path, target_path)
+        dest_path = assets_dir / source_path.name
+        # Simple copy
+        import shutil
+        shutil.copy2(source_path, dest_path)
         
-        # Return relative path for use in Markdown (e.g. "assets/image.png")
+        # Return path relative to project root (standard markdown format)
         return f"assets/{source_path.name}"
+
+    def export_project(self, project_path: Path, dest_zip: Path):
+        """Archives the project folder to a zip file."""
+        import shutil
+        # make_archive works on the root_dir. 
+        # project_path is c:/.../MyProject
+        # we want zip to contain MyProject/... or just contents? 
+        # Usually import expects a folder. Let's zip the content to keep it simple, 
+        # or zip the folder itself. 
+        # Best practice: zip the folder so extracting gives you the folder.
+        
+        base_name = str(dest_zip).replace(".zip", "")
+        shutil.make_archive(base_name, 'zip', root_dir=project_path.parent, base_dir=project_path.name)
+
+    def import_project(self, zip_path: Path) -> Path:
+        """Extracts a zip project to the projects directory. Returns path to extracted project."""
+        import shutil
+        import zipfile
+        
+        # Check if valid zip
+        if not zipfile.is_zipfile(zip_path):
+            raise ValueError("Not a valid zip file")
+
+        # Destination
+        dest_dir = self.projects_root
+        
+        # We need to handle potential naming conflicts or weird zip structures.
+        # Assuming the zip contains a single root folder "MyProject/"
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Inspection could be complex. Let's just extract.
+            # If the user zipped the *contents* (manifest.json at root of zip), we need a folder.
+            # If user zipped the *folder*, we get MyProject/manifest.json.
+            
+            # Heuristic: Check first file
+            first = zf.infolist()[0].filename
+            is_folder_packed = '/' in first and not first.startswith('__MACOSX')
+            
+            if is_folder_packed:
+                # Extract as is
+                zf.extractall(dest_dir)
+                # Find what we extracted? 
+                extracted_name = first.split('/')[0]
+                return dest_dir / extracted_name
+            else:
+                # Contents packed. Create a folder based on zip name
+                name = zip_path.stem
+                new_project_path = dest_dir / name
+                new_project_path.mkdir(exist_ok=True)
+                zf.extractall(new_project_path)
+                return new_project_path

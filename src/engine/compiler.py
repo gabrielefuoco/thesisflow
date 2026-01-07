@@ -1,8 +1,8 @@
 
 from pathlib import Path
 import shutil
-from src.engine.pandoc_wrapper import PandocWrapper
-from src.engine.typst_wrapper import TypstWrapper
+from .pandoc_wrapper import PandocWrapper
+from .typst_wrapper import TypstWrapper
 from src.utils.paths import get_templates_dir
 
 class CompilerEngine:
@@ -71,7 +71,27 @@ class CompilerEngine:
 
         print("Step 3: Converting Markdown -> Typst (Pandoc)...")
         compiled_body_path = self.temp_dir / "compiled_body.typ"
-        self.pandoc.convert_markdown_to_typst(full_markdown, compiled_body_path)
+
+        # Determine CSL path from manifest
+        manifest_path = self.project_root / ".thesis_data" / "manifest.json"
+        csl_path: Optional[Path] = None
+        if manifest_path.exists():
+            import json
+            try:
+                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                citation_style = data.get("citation_style")
+                if citation_style and citation_style != "Default":
+                    from src.utils.paths import get_resource_path
+                    potential_csl_path = get_resource_path(f"templates/styles/{citation_style}.csl")
+                    if potential_csl_path.exists():
+                        print(f"Using CSL: {potential_csl_path}")
+                        csl_path = potential_csl_path
+                    else:
+                        print(f"CSL not found: {potential_csl_path}. Falling back to default.")
+            except Exception as e:
+                print(f"Error reading manifest for CSL: {e}. Falling back to default.")
+
+        self.pandoc.convert_markdown_to_typst(full_markdown, compiled_body_path, csl_path=csl_path)
 
         print("Step 4: Rendering PDF (Typst)...")
         # Ensure master exists

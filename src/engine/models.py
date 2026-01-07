@@ -18,6 +18,7 @@ class ProjectManifest:
     supervisor: str = ""
     year: str = ""
     chapters: List[Chapter] = field(default_factory=list)
+    citation_style: str = "ieee.csl" # Default style
 
     def to_dict(self):
         return {
@@ -29,7 +30,8 @@ class ProjectManifest:
             "chapters": [
                 {"id": c.id, "title": c.title, "filename": c.filename}
                 for c in self.chapters
-            ]
+            ],
+            "citation_style": self.citation_style
         }
 
     @classmethod

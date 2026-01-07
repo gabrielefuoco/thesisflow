@@ -25,6 +25,9 @@ class DashboardFrame(ctk.CTkFrame):
         self.btn_new = ctk.CTkButton(self.actions_frame, text="Nuovo Progetto", command=self.create_new_project)
         self.btn_new.pack(side="left", padx=10)
         
+        self.btn_import = ctk.CTkButton(self.actions_frame, text="Importa ZIP", command=self.import_project_dialog)
+        self.btn_import.pack(side="left", padx=10)
+        
         self.btn_refresh = ctk.CTkButton(self.actions_frame, text="Aggiorna Lista", command=self.refresh_list)
         self.btn_refresh.pack(side="left", padx=10)
 
@@ -49,10 +52,40 @@ class DashboardFrame(ctk.CTkFrame):
             row = ctk.CTkFrame(self.scrollable, fg_color="transparent")
             row.pack(fill="x", pady=5, padx=5)
             
+            # Open Button (Main)
             btn = ctk.CTkButton(row, text=name, 
                                 command=lambda path=p_path: self.on_project_selected(path),
-                                fg_color="transparent", border_width=1, border_color="gray", text_color=("black", "white"))
-            btn.pack(side="left", fill="x", expand=True)
+                                fg_color="transparent", border_width=1, border_color="gray", text_color=("black", "white"), anchor="w")
+            btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+            
+            # Export Button (Small)
+            btn_export = ctk.CTkButton(row, text="Export", width=60, fg_color="gray", 
+                                       command=lambda path=p_path: self.export_project_dialog(path))
+            btn_export.pack(side="right")
+
+    def import_project_dialog(self):
+        from customtkinter import filedialog
+        path = filedialog.askopenfilename(filetypes=[("Zip Files", "*.zip")])
+        if path:
+            try:
+                new_path = self.pm.import_project(Path(path))
+                self.refresh_list()
+                msg.showinfo("Successo", f"Progetto importato: {new_path.name}")
+            except Exception as e:
+                msg.showerror("Errore Import", str(e))
+
+    def export_project_dialog(self, project_path):
+        from customtkinter import filedialog
+        import datetime
+        
+        default_name = f"{project_path.name}_{datetime.datetime.now().strftime('%Y%m%d')}.zip"
+        path = filedialog.asksaveasfilename(initialfile=default_name, filetypes=[("Zip Files", "*.zip")])
+        if path:
+            try:
+                self.pm.export_project(project_path, Path(path))
+                msg.showinfo("Successo", "Esportazione completata.")
+            except Exception as e:
+                msg.showerror("Errore Export", str(e))
 
     def create_new_project(self):
         # Improved Dialog with metadata

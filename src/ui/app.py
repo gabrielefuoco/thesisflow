@@ -44,7 +44,9 @@ class ThesisFlowApp(ctk.CTk):
         self.sidebar = SidebarFrame(self.main_interface, 
                                     on_chapter_select=self.load_chapter,
                                     on_add_chapter=self.add_chapter_dialog,
-                                    on_show_bib=self.open_bibliography)
+                                    on_move_chapter=self.move_chapter,
+                                    on_show_bib=self.open_bibliography,
+                                    on_open_settings=self.open_settings_dialog)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
 
         # Content Area (Right)
@@ -140,6 +142,40 @@ class ThesisFlowApp(ctk.CTk):
             self.refresh_sidebar()
             # Select new chapter
             self.load_chapter(self.pm.manifest.chapters[-1])
+
+    def move_chapter(self, direction):
+        if not self.current_chapter: return
+        self.pm.move_chapter(self.current_chapter, direction)
+        self.refresh_sidebar()
+        # Keep selection?
+        # self.sidebar.select... (logic is not implemented in sidebar fully, but UI rebuilds)
+        # We should ensure the current chapter remains "active" visually. 
+        # Since refresh_sidebar destroys widgets, we need to handle that, 
+        # OR just refreshing is enough and user re-clicks. 
+        # To be nice:
+        # But for now basic functionality.
+
+
+    def open_settings_dialog(self):
+        from src.ui.settings_dialog import SettingsDialog
+        
+        dialog = SettingsDialog(self, self.pm.manifest)
+        self.wait_window(dialog)
+        
+        if dialog.result:
+            # Update manifest
+            self.pm.manifest.title = dialog.result["title"]
+            self.pm.manifest.candidate = dialog.result["candidate"]
+            self.pm.manifest.supervisor = dialog.result["supervisor"]
+            self.pm.manifest.year = dialog.result["year"]
+            self.pm.manifest.citation_style = dialog.result["citation_style"]
+            
+            # Save
+            self.pm._save_manifest(self.pm.current_project_path, self.pm.manifest)
+            
+            # Refresh UI
+            self.title(f"ThesisFlow - {self.pm.manifest.title}")
+            msg.showinfo("Settings", "Impostazioni salvate.")
 
     def on_compile(self):
         # Save whichever view is active
