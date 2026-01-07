@@ -8,10 +8,7 @@ class TypstWrapper:
     def __init__(self):
         self.exe = get_typst_exe()
         if not self.exe.exists():
-             if shutil.which("typst"):
-               self.exe = Path(shutil.which("typst"))
-             else:
-               raise FileNotFoundError(f"Typst executable not found at {self.exe}")
+             raise FileNotFoundError(f"Typst executable not found at {self.exe}")
 
     def compile(self, input_path: Path, output_path: Path = None):
         """

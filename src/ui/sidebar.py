@@ -29,11 +29,7 @@ class SidebarFrame(ctk.CTkFrame):
         self.btn_add = ctk.CTkButton(self, text="+ Nuovo Capitolo", command=self.on_add_chapter)
         self.btn_add.grid(row=1, column=0, padx=10, pady=10)
         
-        # Reorder Buttons (Small row)
-        self.reorder_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.reorder_frame.grid(row=1, column=0, sticky="s", pady=(40, 0)) # Overlay or separate row? 
-        # Actually easier to put row 1 as a frame containing Add and Move buttons
-        
+        # Actions Row
         # Let's redesign row 1
         self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.actions_frame.grid(row=1, column=0, padx=5, pady=5)

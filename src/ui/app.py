@@ -9,7 +9,6 @@ from src.ui.toolbar import ToolbarFrame
 from src.ui.dashboard import DashboardFrame
 from src.ui.sidebar import SidebarFrame
 from src.ui.bibliography import BibliographyFrame
-from src.ui.bibliography import BibliographyFrame
 from src.engine.compiler import CompilerEngine, CompilationError
 from src.engine.project_manager import ProjectManager
 from src.utils.logger import setup_logger, get_logger
@@ -29,8 +28,6 @@ class ThesisFlowApp(ctk.CTk):
         self.logger = setup_logger()
         self.check_dependencies()
 
-        self.pm = ProjectManager()
-        self.current_chapter = None
         self.pm = ProjectManager()
         self.current_chapter = None
         self.view_mode = "editor" # or 'bibliography'
@@ -244,7 +241,7 @@ class ThesisFlowApp(ctk.CTk):
         self.logger.info(f"Compiling project: {self.pm.current_project_path}")
         
         def run_compile():
-            engine = CompilerEngine(self.pm.current_project_path)
+            engine = CompilerEngine(self.pm.current_project_path, self.pm.manifest)
             try:
                 engine.compile()
                 pdf_path = engine.output_pdf

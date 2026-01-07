@@ -8,11 +8,7 @@ class PandocWrapper:
     def __init__(self):
         self.exe = get_pandoc_exe()
         if not self.exe.exists():
-            # Fallback for dev if not in bin/ but in PATH (optional)
-            if shutil.which("pandoc"):
-               self.exe = Path(shutil.which("pandoc"))
-            else:
-               raise FileNotFoundError(f"Pandoc executable not found at {self.exe}")
+             raise FileNotFoundError(f"Pandoc executable not found at {self.exe}")
 
     def convert_markdown_to_typst(self, input_text: str, output_path: Path):
         """
@@ -46,20 +42,3 @@ class PandocWrapper:
         if process.returncode != 0:
             raise RuntimeError(f"Pandoc failed: {process.stderr}")
 
-    def convert_to_typst(self, input_path: str, output_path: str, csl_path: str = None) -> bool:
-        """
-        Converts a file to Typst using Pandoc.
-        """
-        cmd = [
-            str(self.exe), # Changed from self.pandoc_path to self.exe for consistency
-            input_path,
-            "-o", output_path,
-            "--to=typst",
-            "--citeproc", # Enable bibliography processing
-        ]
-
-        if csl_path:
-             cmd.extend(["--csl", csl_path])
-
-        if not self.exe.exists(): # Changed from self.pandoc_path to self.exe for consistency
-            raise FileNotFoundError(f"Pandoc not found at {self.exe}") # Changed from self.pandoc_path to self.exe for consistency
