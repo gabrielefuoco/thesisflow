@@ -29,3 +29,7 @@ def get_pandoc_exe() -> Path:
 def get_typst_exe() -> Path:
     ext = ".exe" if sys.platform == "win32" else ""
     return get_bin_dir() / f"typst{ext}"
+
+def get_resource_path(relative_path: str) -> Path:
+    """Helper to get a resource path relative to the base path."""
+    return get_base_path() / relative_path

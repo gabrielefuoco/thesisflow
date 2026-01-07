@@ -63,4 +63,3 @@ class PandocWrapper:
 
         if not self.exe.exists(): # Changed from self.pandoc_path to self.exe for consistency
             raise FileNotFoundError(f"Pandoc not found at {self.exe}") # Changed from self.pandoc_path to self.exe for consistency
-```
