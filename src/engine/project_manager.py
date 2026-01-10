@@ -30,6 +30,57 @@ class ProjectManager:
                 projects.append(d)
         return projects
 
+    def check_system_health(self) -> List[str]:
+        """Checks for required external tools."""
+        from src.utils.paths import get_pandoc_exe, get_typst_exe
+        missing = []
+        if not get_pandoc_exe().exists(): missing.append("Pandoc")
+        if not get_typst_exe().exists(): missing.append("Typst")
+        return missing
+
+    def get_citation_keys(self) -> List[str]:
+        """Extracts citation keys from the project's bibliography."""
+        if not self.current_project_path: return []
+        bib_path = self.current_project_path / "references.bib"
+        if not bib_path.exists(): return []
+        
+        import re
+        content = bib_path.read_text(encoding="utf-8")
+        return re.findall(r'@\w+\{([^,]+),', content)
+
+    def list_assets(self) -> List[Path]:
+        """Returns list of asset files in the project."""
+        if not self.current_project_path: return []
+        assets_dir = self.current_project_path / "assets"
+        if not assets_dir.exists(): return []
+        return list(assets_dir.glob("*"))
+
+    def list_subsections(self, chapter: Chapter) -> List[Path]:
+        """Returns list of subsection files for a chapter."""
+        if not self.current_project_path: return []
+        # Convention: chapters/<id>/<files>
+        chap_dir = self.current_project_path / "chapters" / chapter.id
+        if not chap_dir.is_dir(): return []
+        
+        files = []
+        for f in sorted(chap_dir.glob("*.md")):
+            if f.name == "master.md": continue
+            files.append(f)
+        return files
+
+    def read_file_content(self, path: Path) -> str:
+        """Reads text content from a path."""
+        # Security check? ensure path is within project
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return ""
+
+    def save_file_content(self, path: Path, content: str):
+        """Saves text content to a path."""
+        # Ensure parent exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
     def create_project(self, name: str, author: str, template_path: Path = None) -> Path:
         """Creates a new project structure."""
         safe_name = "".join([c for c in name if c.isalnum() or c in (' ', '_', '-')]).strip()
@@ -45,9 +96,10 @@ class ProjectManager:
         
         # Manifest
         manifest = ProjectManifest(title=name, author=author)
-        self._save_manifest(project_dir, manifest)
+        self._save_manifest_internal(project_dir, manifest)
         
         # Template Handling
+        target_master = project_dir / "master.typ"
         if template_path and template_path.exists():
             shutil.copy(template_path, target_master)
         else:
@@ -65,6 +117,21 @@ class ProjectManager:
         self.create_chapter("Capitolo 1: Introduzione")
         
         return project_dir
+
+    def list_templates(self) -> List[str]:
+        """Lists available project templates."""
+        t_dir = get_templates_dir()
+        if not t_dir.exists(): return ["Default"]
+        return [f.name for f in t_dir.glob("*.typ")]
+
+    def list_citation_styles(self) -> List[str]:
+        """Lists available CSL citation styles."""
+        from src.utils.paths import get_resource_path
+        styles_dir = get_resource_path("templates/styles")
+        csl_files = ["Default"]
+        if styles_dir.exists():
+            csl_files.extend([f.name for f in styles_dir.glob("*.csl")])
+        return csl_files
 
     def load_project(self, project_dir: Path):
         manifest_path = project_dir / ".thesis_data" / "manifest.json"
@@ -88,8 +155,40 @@ class ProjectManager:
         file_path.write_text(f"# {title}\n\nScrivi qui il tuo contenuto...", encoding="utf-8")
         
         self.manifest.chapters.append(chapter)
-        self._save_manifest(self.current_project_path, self.manifest)
+        self._save_manifest_internal(self.current_project_path, self.manifest)
         return chapter
+
+    def create_subsection(self, chapter: Chapter, title: str):
+        """Creates a sub-section file in the chapter's directory."""
+        if not self.current_project_path:
+             raise RuntimeError("No project loaded")
+        
+        # Ensure chapter directory exists: chapters/<chapter.id>
+        cid = chapter.id
+        base_dir = self.current_project_path / "chapters" / cid
+        base_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Create subsection file with sanitized name
+        safe_title = "".join([c for c in title if c.isalnum() or c in (' ', '_', '-')]).strip()
+        sub_filename = f"{safe_title}.md"
+        
+        file_path = base_dir / sub_filename
+        # Avoid overwriting?
+        if file_path.exists():
+            file_path = base_dir / f"{safe_title}_{uuid.uuid4().hex[:4]}.md"
+
+        file_path.write_text(f"## {title}\n\n", encoding="utf-8")
+
+        # FIX: Automatically include the new subsection in the chapter's master file (the .md file in chapters/)
+        # The compiler resolves includes relative to chapters/ directory for flat files.
+        # chapter.filename is e.g. "chap_1234.md"
+        # We need to add {{ include: 1234/subsection.md }}
+        
+        master_chapter = self.current_project_path / "chapters" / chapter.filename
+        if master_chapter.exists():
+            include_directive = f"\n\n{{{{ include: {cid}/{sub_filename} }}}}"
+            with open(master_chapter, "a", encoding="utf-8") as f:
+                f.write(include_directive)
 
     def update_chapter_content(self, chapter: Chapter, content: str):
         if not self.current_project_path:
@@ -104,7 +203,7 @@ class ProjectManager:
         # Update model
         chapter.title = new_title
         # Save manifest
-        self._save_manifest(self.current_project_path, self.manifest)
+        self._save_manifest_internal(self.current_project_path, self.manifest)
         
         # Optionally update content header if it exists?
         # Let's keep it simple: just metadata rename.
@@ -114,7 +213,7 @@ class ProjectManager:
         
         # Remove from list
         self.manifest.chapters = [c for c in self.manifest.chapters if c.id != chapter.id]
-        self._save_manifest(self.current_project_path, self.manifest)
+        self._save_manifest_internal(self.current_project_path, self.manifest)
         
         # Remove file
         file_path = self.current_project_path / "chapters" / chapter.filename
@@ -142,7 +241,7 @@ class ProjectManager:
         if new_idx != idx:
             # Swap
             self.manifest.chapters[idx], self.manifest.chapters[new_idx] = self.manifest.chapters[new_idx], self.manifest.chapters[idx]
-            self._save_manifest(self.current_project_path, self.manifest)
+            self._save_manifest_internal(self.current_project_path, self.manifest)
 
     def get_chapter_content(self, chapter: Chapter) -> str:
         if not self.current_project_path:
@@ -152,7 +251,13 @@ class ProjectManager:
             return path.read_text(encoding="utf-8")
         return ""
 
-    def _save_manifest(self, project_dir: Path, manifest: ProjectManifest):
+    def save_settings(self):
+        """Saves the current manifest (settings) to disk."""
+        if not self.current_project_path or not self.manifest:
+            raise RuntimeError("No project to save.")
+        self._save_manifest_internal(self.current_project_path, self.manifest)
+
+    def _save_manifest_internal(self, project_dir: Path, manifest: ProjectManifest):
         path = project_dir / ".thesis_data" / "manifest.json"
         
         # Atomic Write
@@ -253,3 +358,146 @@ class ProjectManager:
                 new_project_path.mkdir(exist_ok=True)
                 zf.extractall(new_project_path)
                 return new_project_path
+
+    def compile_project(self) -> Path:
+        """Compiles the current project to PDF."""
+        if not self.current_project_path or not self.manifest:
+             raise RuntimeError("No project loaded.")
+        
+        # Local import to avoid circular dependency if any
+        from src.engine.compiler import CompilerEngine
+        
+        engine = CompilerEngine(self.current_project_path, self.manifest)
+        engine.compile()
+        return engine.output_pdf
+
+    def open_generated_pdf(self, pdf_path: Path):
+        """Opens the generated PDF file with the default system viewer."""
+        import os
+        import platform
+        import subprocess
+
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+        try:
+            if platform.system() == "Windows":
+                os.startfile(pdf_path)
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", str(pdf_path)], check=True)
+            else:
+                subprocess.run(["xdg-open", str(pdf_path)], check=True)
+        except Exception as e:
+            print(f"Error opening PDF: {e}")
+            # We don't raise here strictly, or we could. 
+            # The UI might want to know, so let's re-raise or handle gracefully.
+            raise e
+
+    def update_settings(self, settings: dict):
+        """Updates project settings and saves the manifest."""
+        if not self.manifest:
+            raise RuntimeError("No project loaded")
+        
+        # Update fields if present
+        if "title" in settings: self.manifest.title = settings["title"]
+        if "author" in settings: self.manifest.author = settings["author"]
+        if "candidate" in settings: self.manifest.candidate = settings["candidate"]
+        if "supervisor" in settings: self.manifest.supervisor = settings["supervisor"]
+        if "year" in settings: self.manifest.year = settings["year"]
+        if "citation_style" in settings: self.manifest.citation_style = settings["citation_style"]
+        
+        self.save_settings()
+
+    def get_bibliography_content(self) -> str:
+        """Reads the bibliography file content."""
+        if not self.current_project_path: return ""
+        bib_path = self.current_project_path / "references.bib"
+        if bib_path.exists():
+            return bib_path.read_text(encoding="utf-8")
+        return ""
+
+    def save_bibliography_content(self, content: str):
+        """Saves content to the bibliography file."""
+        if not self.current_project_path:
+             raise RuntimeError("No project loaded.")
+        bib_path = self.current_project_path / "references.bib"
+        bib_path.write_text(content, encoding="utf-8")
+
+    def resolve_doi(self, doi: str) -> dict:
+        """Resolves a DOI to BibTeX data using Crossref."""
+        import urllib.request
+        import urllib.error
+        import re
+
+        url = f"https://doi.org/{doi}"
+        req = urllib.request.Request(url, headers={"Accept": "application/x-bibtex"})
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                bibtex = response.read().decode("utf-8")
+                return self._parse_bibtex_internal(bibtex)
+        except Exception as e:
+            raise RuntimeError(f"DOI Resolution failed: {e}")
+
+    def _parse_bibtex_internal(self, bibtex: str) -> dict:
+        """Parses a BibTeX string and returns a dictionary of fields."""
+        import re
+        data = {"type": "misc", "fields": {}}
+        
+        # Detect type
+        m_type = re.search(r'@(\w+)\{', bibtex)
+        if m_type:
+            data["type"] = m_type.group(1).lower()
+        
+        # Helper to extract field
+        def get_field(name):
+            pat = rf"{name}\s*=\s*[\"{{]?(.*?)[\"}}],?\s*(?:\n|$)"
+            m = re.search(pat, bibtex, re.IGNORECASE)
+            return m.group(1) if m else ""
+            
+        data["fields"]["title"] = get_field("title")
+        data["fields"]["author"] = get_field("author")
+        data["fields"]["year"] = get_field("year")
+        data["fields"]["publisher"] = get_field("publisher") or get_field("journal")
+        data["fields"]["doi"] = get_field("doi") or get_field("url")
+        data["fields"]["id"] = ""
+        
+        # Key
+        m_key = re.search(r'@\w+\{([^,]+),', bibtex)
+        if m_key:
+            data["fields"]["id"] = m_key.group(1)
+            
+        return data
+
+    def get_asset_markdown(self, filename: str) -> str:
+        """Returns the markdown string for embedding an asset."""
+        # Centralizes asset path logic
+        return f"![{filename}](assets/{filename})"
+
+    def delete_project(self, project_path: Path):
+        """Deletes a project directory."""
+        if not project_path.exists():
+            return
+            
+        # Security check: must be inside projects_root
+        try:
+             # resolve() handles symlinks and '..'
+            resolved_path = project_path.resolve()
+            resolved_root = self.projects_root.resolve()
+            
+            if not str(resolved_path).startswith(str(resolved_root)):
+                 raise PermissionError("Cannot delete projects outside the projects directory.")
+                 
+            if resolved_path == resolved_root:
+                 raise PermissionError("Cannot delete the root projects directory.")
+                 
+            import shutil
+            shutil.rmtree(resolved_path)
+            
+            if self.current_project_path == project_path:
+                self.current_project_path = None
+                self.manifest = None
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to delete project: {e}")
+

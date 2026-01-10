@@ -43,5 +43,6 @@ class ProjectManifest:
             candidate=data.get("candidate", ""),
             supervisor=data.get("supervisor", ""),
             year=data.get("year", ""),
-            chapters=chapters
+            chapters=chapters,
+            citation_style=data.get("citation_style", "ieee.csl")
         )

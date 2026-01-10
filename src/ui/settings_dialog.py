@@ -2,7 +2,7 @@
 import customtkinter as ctk
 
 class SettingsDialog(ctk.CTkToplevel):
-    def __init__(self, master, current_manifest):
+    def __init__(self, master, current_manifest, citation_styles: list[str]):
         super().__init__(master)
         self.title("Impostazioni Progetto")
         self.geometry("400x450")
@@ -38,16 +38,8 @@ class SettingsDialog(ctk.CTkToplevel):
         # Citation Style
         ctk.CTkLabel(self, text="Stile Citazione").grid(row=4, column=0, padx=10, pady=10, sticky="w")
         
-        # Scan for styles
-        from src.utils.paths import get_resource_path
-        from pathlib import Path
-        styles_dir = get_resource_path("templates/styles")
-        csl_files = ["Default"]
-        if styles_dir.exists():
-            csl_files.extend([f.name for f in styles_dir.glob("*.csl")])
-
         self.csl_var = ctk.StringVar(value=self.manifest.citation_style if self.manifest.citation_style else "Default")
-        self.combo_csl = ctk.CTkComboBox(self, values=csl_files, variable=self.csl_var)
+        self.combo_csl = ctk.CTkComboBox(self, values=citation_styles, variable=self.csl_var)
         self.combo_csl.grid(row=4, column=1, padx=10, pady=10, sticky="ew")
 
         # Save Button

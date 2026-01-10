@@ -1,4 +1,3 @@
-
 import customtkinter as ctk
 import tkinter.messagebox as msg
 from pathlib import Path
@@ -11,38 +10,61 @@ from src.ui.theme import Theme
 from src.utils.icons import IconFactory
 
 class ProjectCard(ctk.CTkFrame):
-    def __init__(self, master, project_path: Path, on_click: Callable, on_export: Callable, **kwargs):
-        super().__init__(master, fg_color=Theme.COLOR_PANEL, corner_radius=10, border_width=1, border_color=Theme.COLOR_BORDER, **kwargs)
+    def __init__(self, master, project_path: Path, on_click: Callable, on_export: Callable, on_delete: Callable, is_compact=False, **kwargs):
+        super().__init__(master, fg_color=Theme.COLOR_PANEL, corner_radius=12, border_width=1, border_color=Theme.COLOR_BORDER, **kwargs)
         self.project_path = project_path
         self.on_click = on_click
+        self.on_delete = on_delete
         
         # Hover effect
         self.bind("<Enter>", self.on_enter)
         self.bind("<Leave>", self.on_leave)
         
-        # Grid layout inside card
         self.grid_columnconfigure(0, weight=1)
         
-        # Icon
-        self.icon = ctk.CTkButton(self, text="", image=IconFactory.get_icon("folder", size=(40,40)), 
-                                  fg_color="transparent", hover=False, 
-                                  command=lambda: on_click(project_path))
-        self.icon.grid(row=0, column=0, pady=(20, 10), sticky="ew")
-        
-        # Title
-        self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=("Segoe UI", 16, "bold"), text_color=Theme.TEXT_MAIN)
-        self.lbl_title.grid(row=1, column=0, padx=10, sticky="ew")
-        
-        # Date
         mtime = datetime.fromtimestamp(project_path.stat().st_mtime)
-        self.lbl_date = ctk.CTkLabel(self, text=mtime.strftime("%d/%m/%Y"), font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
-        self.lbl_date.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="ew")
         
-        # Fake Progress Bar (Visual candy)
-        self.progress = ctk.CTkProgressBar(self, height=4, progress_color=Theme.COLOR_ACCENT)
-        self.progress.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
-        self.progress.set(0.3) # Dummy value, logic could be added
+        if is_compact:
+            # Compact Row for "All Projects" list/grid
+            self.icon = ctk.CTkButton(self, text="", image=IconFactory.get_icon("folder", size=(24,24)), 
+                                      fg_color="transparent", hover=False, width=40,
+                                      command=lambda: on_click(project_path))
+            self.icon.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+            
+            self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=("Segoe UI", 14, "bold"), text_color=Theme.TEXT_MAIN, anchor="w")
+            self.lbl_title.grid(row=0, column=1, padx=(0,10), sticky="ew")
+            
+            self.lbl_date = ctk.CTkLabel(self, text=mtime.strftime("%d/%m/%Y"), font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
+            self.lbl_date.grid(row=0, column=2, padx=10, sticky="e")
+            
+            # Delete Button (Small)
+            self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(16,16)),
+                                        fg_color="transparent", hover_color="#CF0000", width=30, height=30,
+                                        command=lambda: on_delete(project_path))
+            self.btn_del.grid(row=0, column=3, padx=(0, 10), sticky="e")
+            
+            self.grid_columnconfigure(1, weight=1)
+            self.grid_columnconfigure(2, weight=0)
+            self.grid_columnconfigure(3, weight=0)
 
+        else:
+            # Full Card for "Recent"
+            self.icon = ctk.CTkButton(self, text="", image=IconFactory.get_icon("folder", size=(48,48)), 
+                                      fg_color="transparent", hover=False, 
+                                      command=lambda: on_click(project_path))
+            self.icon.grid(row=0, column=0, pady=(25, 15), sticky="ew")
+            
+            self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=("Segoe UI", 18, "bold"), text_color=Theme.TEXT_MAIN)
+            self.lbl_title.grid(row=1, column=0, padx=15, sticky="ew")
+            self.lbl_date = ctk.CTkLabel(self, text=f"Modificato: {mtime.strftime('%d/%m/%Y')}", font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
+            self.lbl_date.grid(row=2, column=0, padx=15, pady=(5, 20), sticky="ew")
+            
+            # Delete Button (Floating or Corner?) -> Let's put it top-right
+            self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(16,16)),
+                                        fg_color="transparent", hover_color="#CF0000", width=30, height=30,
+                                        command=lambda: on_delete(project_path))
+            self.btn_del.place(relx=1.0, rely=0.0, anchor="ne", x=-5, y=5)
+        
         # Make all children clickable
         for child in self.winfo_children():
             child.bind("<Button-1>", lambda e: on_click(project_path))
@@ -66,28 +88,29 @@ class DashboardFrame(ctk.CTkFrame):
 
         # --- Header ---
         self.header = ctk.CTkFrame(self, fg_color="transparent", height=80)
-        self.header.grid(row=0, column=0, sticky="ew", padx=40, pady=40)
+        self.header.grid(row=0, column=0, sticky="ew", padx=50, pady=40)
         
-        ctk.CTkLabel(self.header, text="Dashboard", font=("Segoe UI", 32, "bold"), text_color=Theme.TEXT_MAIN).pack(side="left")
+        ctk.CTkLabel(self.header, text="Dashboard", font=("Segoe UI", 36, "bold"), text_color=Theme.TEXT_MAIN).pack(side="left")
         
         # New Project Button (Accent)
         self.btn_new = ctk.CTkButton(self.header, text="+ Nuovo Progetto", 
                                      font=("Segoe UI", 14, "bold"),
                                      fg_color=Theme.COLOR_ACCENT, hover_color=Theme.COLOR_ACCENT_HOVER,
-                                     height=40,
+                                     height=44, corner_radius=22,
                                      command=self.create_new_project)
         self.btn_new.pack(side="right")
         
         self.btn_import = ctk.CTkButton(self.header, text="Importa", 
                                         fg_color="transparent", border_width=1, border_color=Theme.COLOR_BORDER,
-                                        width=80,
+                                        text_color=Theme.TEXT_MAIN, hover_color=Theme.COLOR_PANEL_HOVER,
+                                        width=100, height=44, corner_radius=22,
                                         command=self.import_project_dialog)
-        self.btn_import.pack(side="right", padx=10)
+        self.btn_import.pack(side="right", padx=15)
 
         # --- Content Area ---
         self.scrollable = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scrollable.grid(row=1, column=0, sticky="nsew", padx=40, pady=(0, 40))
-        self.scrollable.grid_columnconfigure((0,1,2,3), weight=1) # 4 Columns
+        self.scrollable.grid_columnconfigure(0, weight=1) # 1 Column layout for sections
         
         self.refresh_list()
 
@@ -102,28 +125,50 @@ class DashboardFrame(ctk.CTkFrame):
             self._show_empty_state()
             return
 
-        # Grid Layout
-        cols = 4
-        for i, p_path in enumerate(projects):
-            card = ProjectCard(self.scrollable, p_path, 
-                               on_click=self.on_project_selected,
-                               on_export=self.export_project_dialog)
-            card.grid(row=i//cols, column=i%cols, padx=10, pady=10, sticky="nsew")
+        # Split Recent vs All
+        recent = projects[:3]
+        others = projects[3:] if len(projects) > 3 else []
+        
+        # SECTION: Recent
+        lbl_recent = ctk.CTkLabel(self.scrollable, text="Recenti", font=("Segoe UI", 20, "bold"), text_color=Theme.TEXT_MAIN)
+        lbl_recent.pack(anchor="w", pady=(10, 15), padx=10)
+        
+        recent_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
+        recent_frame.pack(fill="x", pady=(0, 30))
+        recent_frame.grid_columnconfigure((0,1,2), weight=1)
+        
+        for i, p_path in enumerate(recent):
+            card = ProjectCard(recent_frame, p_path, on_click=self.on_project_selected, on_export=self.export_project_dialog, on_delete=self.delete_project_confirm, is_compact=False)
+            card.grid(row=0, column=i, padx=10, sticky="ew")
+
+        # SECTION: All Projects
+        if others:
+            lbl_all = ctk.CTkLabel(self.scrollable, text="Tutti i Progetti", font=("Segoe UI", 20, "bold"), text_color=Theme.TEXT_MAIN)
+            lbl_all.pack(anchor="w", pady=(10, 15), padx=10)
+            
+            all_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
+            all_frame.pack(fill="x")
+            all_frame.grid_columnconfigure((0,1), weight=1) # 2 columns for compact list
+            
+            for i, p_path in enumerate(others):
+                card = ProjectCard(all_frame, p_path, on_click=self.on_project_selected, on_export=self.export_project_dialog, on_delete=self.delete_project_confirm, is_compact=True)
+                card.grid(row=i//2, column=i%2, padx=10, pady=10, sticky="ew")
 
     def _show_empty_state(self):
         container = ctk.CTkFrame(self.scrollable, fg_color="transparent")
         container.pack(expand=True, pady=100)
         
         # Big Icon
-        ctk.CTkButton(container, text="", image=IconFactory.get_icon("project", size=(64,64)), 
+        ctk.CTkButton(container, text="", image=IconFactory.get_icon("project", size=(80,80)), 
                      fg_color="transparent", hover=False).pack(pady=20)
         
-        ctk.CTkLabel(container, text="Nessun progetto trovato", font=("Segoe UI", 20, "bold"), text_color=Theme.TEXT_MAIN).pack()
-        ctk.CTkLabel(container, text="Crea il tuo primo progetto per iniziare a scrivere.", font=("Segoe UI", 14), text_color=Theme.TEXT_DIM).pack(pady=(5, 30))
+        ctk.CTkLabel(container, text="Nessun progetto trovato", font=("Segoe UI", 24, "bold"), text_color=Theme.TEXT_MAIN).pack()
+        ctk.CTkLabel(container, text="Crea il tuo primo progetto per iniziare a scrivere.", font=("Segoe UI", 16), text_color=Theme.TEXT_DIM).pack(pady=(10, 40))
         
         ctk.CTkButton(container, text="Crea Progetto", 
                       fg_color=Theme.COLOR_ACCENT, hover_color=Theme.COLOR_ACCENT_HOVER,
-                      width=200, height=50, font=("Segoe UI", 16, "bold"),
+                      width=220, height=54, font=("Segoe UI", 18, "bold"),
+                      corner_radius=27,
                       command=self.create_new_project).pack()
 
     def import_project_dialog(self):
@@ -149,8 +194,17 @@ class DashboardFrame(ctk.CTkFrame):
             except Exception as e:
                 msg.showerror("Errore Export", str(e))
 
+    def delete_project_confirm(self, project_path):
+        if msg.askyesno("Elimina Progetto", f"Sei sicuro di voler eliminare definitivamente il progetto:\n'{project_path.name}'?\n\nQuesta azione non è reversibile."):
+            try:
+                self.pm.delete_project(project_path)
+                self.refresh_list()
+            except Exception as e:
+                msg.showerror("Errore Eliminazione", str(e))
+
     def create_new_project(self):
-        dialog = NewProjectDialog(self)
+        templates = self.pm.list_templates()
+        dialog = NewProjectDialog(self, templates)
         self.wait_window(dialog)
         
         if dialog.result:
@@ -160,11 +214,8 @@ class DashboardFrame(ctk.CTkFrame):
                 template_path = dialog.result.get("template_path")
                 self.pm.create_project(name, author=author, template_path=template_path)
                 
-                if self.pm.manifest:
-                    self.pm.manifest.candidate = dialog.result["candidate"]
-                    self.pm.manifest.supervisor = dialog.result["supervisor"]
-                    self.pm.manifest.year = dialog.result["year"]
-                    self.pm._save_manifest(self.pm.current_project_path, self.pm.manifest)
+                # Update additional settings immediately
+                self.pm.update_settings(dialog.result)
                 
                 self.refresh_list()
                 msg.showinfo("Successo", f"Progetto creato: {name}")
@@ -172,46 +223,38 @@ class DashboardFrame(ctk.CTkFrame):
                 msg.showerror("Errore", str(e))
 
 class NewProjectDialog(ctk.CTkToplevel):
-    def __init__(self, master):
-        self.bg_color = Theme.COLOR_PANEL
+    def __init__(self, master, templates: list[str]):
         super().__init__(master, fg_color=Theme.COLOR_PANEL)
         self.title("Nuovo Progetto")
-        self.geometry("450x550")
+        self.geometry("500x600")
         self.result = None
         
         # Center content
         content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=40, pady=40)
+        content.pack(fill="both", expand=True, padx=50, pady=50)
         
-        ctk.CTkLabel(content, text="Nuovo Progetto", font=("Segoe UI", 24, "bold"), text_color=Theme.TEXT_MAIN).pack(pady=(0, 20), anchor="w")
+        ctk.CTkLabel(content, text="Nuovo Progetto", font=("Segoe UI", 28, "bold"), text_color=Theme.TEXT_MAIN).pack(pady=(0, 30), anchor="w")
 
-        self.grid_columnconfigure(1, weight=1)
-
-        def make_entry(parent, label):
-            ctk.CTkLabel(parent, text=label, text_color=Theme.TEXT_DIM).pack(anchor="w", pady=(10, 5))
-            e = ctk.CTkEntry(parent, fg_color=Theme.COLOR_BG, border_color=Theme.COLOR_BORDER, text_color=Theme.TEXT_MAIN)
+        def make_entry(parent, label, placeholder=""):
+            ctk.CTkLabel(parent, text=label, text_color=Theme.TEXT_DIM, font=("Segoe UI", 12)).pack(anchor="w", pady=(10, 6))
+            e = ctk.CTkEntry(parent, fg_color=Theme.COLOR_BG, border_color=Theme.COLOR_BORDER, text_color=Theme.TEXT_MAIN, height=38, placeholder_text=placeholder)
             e.pack(fill="x")
             return e
 
-        self.entry_title = make_entry(content, "Nome Progetto (Cartella)")
-        self.entry_candidate = make_entry(content, "Candidato")
-        self.entry_supervisor = make_entry(content, "Relatore")
-        self.entry_year = make_entry(content, "Anno Accademico")
+        self.entry_title = make_entry(content, "Nome Progetto (Cartella)", "Es. TesiMagistrale")
+        self.entry_candidate = make_entry(content, "Candidato", "Es. Mario Rossi")
+        self.entry_supervisor = make_entry(content, "Relatore", "Es. Prof. Verdi")
+        self.entry_year = make_entry(content, "Anno Accademico", "Es. 2025/2026")
 
-        ctk.CTkLabel(content, text="Template", text_color=Theme.TEXT_DIM).pack(anchor="w", pady=(10, 5))
-        self.combo_template = ctk.CTkOptionMenu(content, values=self.get_templates(), fg_color=Theme.COLOR_BG, button_color=Theme.COLOR_ACCENT)
+        ctk.CTkLabel(content, text="Template", text_color=Theme.TEXT_DIM, font=("Segoe UI", 12)).pack(anchor="w", pady=(15, 6))
+        self.combo_template = ctk.CTkOptionMenu(content, values=templates, fg_color=Theme.COLOR_PANEL_HOVER, button_color=Theme.COLOR_ACCENT, text_color=Theme.TEXT_MAIN, height=38)
         self.combo_template.pack(fill="x")
 
         self.btn_ok = ctk.CTkButton(content, text="Crea Progetto", 
                                     fg_color=Theme.COLOR_ACCENT, hover_color=Theme.COLOR_ACCENT_HOVER,
-                                    height=40, font=("Segoe UI", 14, "bold"),
+                                    height=48, font=("Segoe UI", 16, "bold"),
                                     command=self.on_ok)
-        self.btn_ok.pack(pady=30, fill="x")
-    
-    def get_templates(self):
-        t_dir = get_templates_dir()
-        if not t_dir.exists(): return ["Default"]
-        return [f.name for f in t_dir.glob("*.typ")]
+        self.btn_ok.pack(pady=40, fill="x")
 
     def on_ok(self):
         t = self.entry_title.get()

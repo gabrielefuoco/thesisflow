@@ -3,3 +3,6 @@ customtkinter
 packaging
 pillow
 pyinstaller
+pytest
+pytest-mock
+pytest-cov

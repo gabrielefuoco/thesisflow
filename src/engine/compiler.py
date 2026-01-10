@@ -1,6 +1,7 @@
 
 from pathlib import Path
 import shutil
+import re
 from .pandoc_wrapper import PandocWrapper
 from .typst_wrapper import TypstWrapper
 from src.utils.paths import get_templates_dir
@@ -64,6 +65,27 @@ class CompilerEngine:
                 elif path.exists():
                     # Flat File Structure (Legacy)
                     raw_content = path.read_text(encoding="utf-8")
+                    
+                    # AUTO-INCLUDE ORPHANS: Scan for unreferenced subsections
+                    sub_dir = self.chapters_dir / chap.id
+                    if sub_dir.is_dir():
+                        # Extract existing includes to avoid duplicates
+                        existing_includes = set()
+                        include_pattern = re.compile(r'\{\{\s*include:\s*["\']?(.*?)["\']?\s*\}\}')
+                        for match in include_pattern.finditer(raw_content):
+                            existing_includes.add(match.group(1).strip())
+
+                        for subfile in sorted(sub_dir.glob("*.md")):
+                            if subfile.name == "master.md": continue
+                            
+                            # The include path expected is relative to self.chapters_dir (path.parent)
+                            # e.g. "chap_id/sub.md"
+                            rel_include = f"{chap.id}/{subfile.name}"
+                            
+                            if rel_include not in existing_includes:
+                                self.logger.info(f"Auto-including orphan subsection: {rel_include}")
+                                raw_content += f"\n\n{{{{ include: {rel_include} }}}}"
+
                     chapter_content = self._resolve_includes(raw_content, path.parent)
                 else:
                     self.logger.warning(f"Chapter file missing (Ghost): {chap.filename}")
@@ -83,34 +105,36 @@ class CompilerEngine:
 
     def compile(self, output_format="pdf"):
         self.logger.info(f"Starting compilation to {output_format}...")
-        print("Step 1: Preparing build environment...")
+        self.logger.info("Step 1: Preparing build environment...")
         self._prepare_temp()
 
         # Generate metadata.typ for Front Matter
         self._generate_typst_metadata()
 
-        print("Step 2: Aggregating content...")
+        self.logger.info("Step 2: Aggregating content...")
         full_markdown = self._concatenate_chapters()
         
         # Inject Bibliography Metadata if references.bib exists
         bib_path = self.project_root / "references.bib"
         if bib_path.exists():
-            print("Bibliography found, injecting metadata...")
+            self.logger.info("Bibliography found, injecting metadata...")
             # Prepend YAML metadata for Pandoc
             yaml_block = "---\nbibliography: references.bib\n---\n\n"
             full_markdown = yaml_block + full_markdown
 
         if not full_markdown:
-            print("Warning: No markdown content found.")
+            self.logger.warning("Warning: No markdown content found.")
             full_markdown = "*Nessun contenuto.*"
 
         if output_format == "pdf":
-            print("Step 3: Converting Markdown -> Typst (Pandoc) -> PDF...")
+            self.logger.info("Step 3: Converting Markdown -> Typst (Pandoc) -> PDF...")
             # Use Pandoc to convert MD -> Typst
+            compiled_body_path = self.temp_dir / "compiled_body.typ"
             try:
                 self.pandoc.convert_markdown_to_typst(full_markdown, compiled_body_path)
             except RuntimeError as e:
                 # Pandoc failed
+                 self.logger.error(f"Pandoc failed: {e}")
                  raise CompilationError("Errore Pandoc (MD -> Typst)", details=str(e))
 
             try:
@@ -119,12 +143,14 @@ class CompilerEngine:
                  msg = str(e)
                  if "Typst failed:" in msg:
                      stderr = msg.split("Typst failed:", 1)[1].strip()
+                     self.logger.error(f"Typst failed: {stderr}")
                      raise CompilationError("Errore durante la compilazione Typst", details=stderr)
+                 self.logger.error(f"Typst compilation failed: {e}")
                  raise e
-            print(f"Done! Output at: {self.output_pdf}")
+            self.logger.info(f"Done! Output at: {self.output_pdf}")
 
         elif output_format == "docx":
-             print("Step 3: Converting Markdown -> DOCX (Pandoc)...")
+             self.logger.info("Step 3: Converting Markdown -> DOCX (Pandoc)...")
              docx_path = self.project_root / "Tesi_Finale.docx"
              # Pandoc directly MD -> DOCX
              # We might need to handle reference-doc or templating later
@@ -141,10 +167,10 @@ class CompilerEngine:
              
              cmd.append(str(temp_md))
              subprocess.run(cmd, check=True)
-             print(f"Done! DOCX at: {docx_path}")
+             self.logger.info(f"Done! DOCX at: {docx_path}")
              
         elif output_format == "tex":
-             print("Step 3: Converting Markdown -> LaTeX (Pandoc)...")
+             self.logger.info("Step 3: Converting Markdown -> LaTeX (Pandoc)...")
              tex_path = self.project_root / "Tesi_Finale.tex"
              temp_md = self.temp_dir / "full_source.md"
              temp_md.write_text(full_markdown, encoding="utf-8")
@@ -155,14 +181,9 @@ class CompilerEngine:
              
              import subprocess
              subprocess.run(cmd, check=True)
-             print(f"Done! LaTeX at: {tex_path}")
+             self.logger.info(f"Done! LaTeX at: {tex_path}")
         
-        print(f"Done! Output at: {self.output_pdf}")
-
-class CompilationError(Exception):
-    def __init__(self, message, details=""):
-        super().__init__(message)
-        self.details = details
+        self.logger.info(f"Done! Output at: {self.output_pdf}")
 
     def _generate_typst_metadata(self):
         # Reads manifest and writes .thesis_data/temp/metadata.typ
@@ -173,12 +194,14 @@ class CompilationError(Exception):
             candidate = self.manifest.candidate
             supervisor = self.manifest.supervisor
             year = self.manifest.year
+            author = self.manifest.author
             
             metadata_content = f'''
 #let title = "{title}"
 #let candidate = "{candidate}"
 #let supervisor = "{supervisor}"
 #let year = "{year}"
+#let author = "{author}"
 '''
         
         (self.temp_dir / "metadata.typ").write_text(metadata_content, encoding="utf-8")
@@ -191,3 +214,8 @@ class CompilationError(Exception):
         else:
              # Fallback
             self.master_file.write_text('#include ".thesis_data/temp/compiled_body.typ"', encoding="utf-8")
+
+class CompilationError(Exception):
+    def __init__(self, message, details=""):
+        super().__init__(message)
+        self.details = details

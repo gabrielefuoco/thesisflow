@@ -102,3 +102,8 @@ if __name__ == "__main__":
     create_icon("down", draw_chevron_down)
     create_icon("up", draw_chevron_right) # Wrong direction but placeholder
     create_icon("list", draw_list)
+    
+    # Text editor icons
+    create_icon("undo", draw_bold) # Placeholder
+    create_icon("redo", draw_bold) # Placeholder
+    create_icon("code", draw_bold) # Placeholder for code

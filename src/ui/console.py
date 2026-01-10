@@ -1,7 +1,7 @@
-
 import customtkinter as ctk
 import logging
 import tkinter as tk
+from src.utils.icons import IconFactory
 
 class ConsolePanel(ctk.CTkFrame):
     def __init__(self, master, logger_name="ThesisFlow", **kwargs):
@@ -9,12 +9,12 @@ class ConsolePanel(ctk.CTkFrame):
         
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        self.logger_name = logger_name
         
         # Header Frame (Clickable)
         self.header_frame = ctk.CTkFrame(self, height=25, fg_color=("gray85", "gray25"), corner_radius=5)
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
         
-        from src.utils.icons import IconFactory
         self.icon_toggle = ctk.CTkLabel(self.header_frame, text="", image=IconFactory.get_icon("down", size=(12,12), color="gray"))
         self.icon_toggle.pack(side="left", padx=5)
         
@@ -46,7 +46,7 @@ class ConsolePanel(ctk.CTkFrame):
              self.toggle_collapse()
         
         # Setup logging handler
-        self.logger = logging.getLogger(logger_name)
+        self.logger = logging.getLogger(self.logger_name)
         self.handler = ConsoleUiHandler(self.textbox)
         self.handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S'))
         self.logger.addHandler(self.handler)

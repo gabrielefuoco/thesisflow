@@ -27,15 +27,15 @@ class BibliographyFrame(ctk.CTkFrame):
         self.load()
 
     def load(self):
-        if not self.project_root: return
-        bib_path = self.project_root / "references.bib"
-        if bib_path.exists():
-            self.textbox.insert("1.0", bib_path.read_text(encoding="utf-8"))
+        pm = self.winfo_toplevel().pm
+        content = pm.get_bibliography_content()
+        self.textbox.delete("1.0", "end")
+        self.textbox.insert("1.0", content)
     
     def save(self):
-        if not self.project_root: return
+        pm = self.winfo_toplevel().pm
         text = self.textbox.get("1.0", "end-1c")
-        bib_path.write_text(text, encoding="utf-8")
+        pm.save_bibliography_content(text)
         msg.showinfo("Info", "Bibliografia salvata.")
 
     def open_citation_dialog(self):
@@ -65,7 +65,8 @@ class CitationDialog(ctk.CTkToplevel):
         ctk.CTkLabel(frame_doi, text="Cerca DOI:").pack(side="left", padx=5)
         self.entry_doi_search = ctk.CTkEntry(frame_doi, placeholder_text="10.1038/...")
         self.entry_doi_search.pack(side="left", fill="x", expand=True, padx=5)
-        ctk.CTkButton(frame_doi, text="🔍", width=40, command=self.lookup_doi).pack(side="left", padx=5)
+        self.btn_search = ctk.CTkButton(frame_doi, text="🔍", width=40, command=self.lookup_doi)
+        self.btn_search.pack(side="left", padx=5)
 
         self.fields = {}
         # Common fields
@@ -123,54 +124,50 @@ class CitationDialog(ctk.CTkToplevel):
         doi = self.entry_doi_search.get().strip()
         if not doi: return
         
-        import urllib.request
-        import urllib.error
+        # UI Feedback
+        self.btn_search.configure(state="disabled", text="⏳")
+        self.entry_doi_search.configure(state="disabled")
         
-        # Crossref API Content Negotiation
-        url = f"https://doi.org/{doi}"
-        req = urllib.request.Request(url, headers={"Accept": "application/x-bibtex"})
+        import threading
+        def run_lookup():
+            try:
+                pm = self.master.winfo_toplevel().pm
+                data = pm.resolve_doi(doi)
+                self.after(0, lambda: self._on_lookup_success(data))
+            except Exception as e:
+                self.after(0, lambda e=e: self._on_lookup_error(e))
         
-        try:
-            with urllib.request.urlopen(req) as response:
-                bibtex = response.read().decode("utf-8")
-                self.parse_and_fill(bibtex)
-        except Exception as e:
-            msg.showerror("Errore DOI", f"Impossibile trovare il DOI.\n{e}")
+        threading.Thread(target=run_lookup, daemon=True).start()
 
-    def parse_and_fill(self, bibtex: str):
-        # Naive BibTeX parser
-        # Example: @article{key, title={...}, author={...}, ...}
-        import re
-        
-        # Detect type
-        m_type = re.search(r'@(\w+)\{', bibtex)
-        if m_type:
-            ctype = m_type.group(1).lower()
-            if ctype in ["article", "book", "misc"]:
-                 self.type_var.set(ctype)
-            else:
-                 self.type_var.set("misc") # Fallback
-        
-        # Helper to extract field
-        def get_field(name):
-            # Matches field = {value} or field = "value" or field = value
-            pat = rf"{name}\s*=\s*[\"{{]?(.*?)[\"}}],?\n"
-            m = re.search(pat, bibtex, re.IGNORECASE)
-            return m.group(1) if m else ""
+    def _on_lookup_success(self, data):
+        self.fill_from_data(data)
+        self._reset_search_ui()
+
+    def _on_lookup_error(self, error):
+        msg.showerror("Errore DOI", str(error))
+        self._reset_search_ui()
+
+    def _reset_search_ui(self):
+        self.btn_search.configure(state="normal", text="🔍")
+        self.entry_doi_search.configure(state="normal")
+
+    def fill_from_data(self, data: dict):
+        # Set Type
+        if data["type"] in ["article", "book", "misc"]:
+             self.type_var.set(data["type"])
+        else:
+             self.type_var.set("misc")
 
         # Fill fields
-        if "title" in self.fields: self.fields["title"].delete(0, tk.END); self.fields["title"].insert(0, get_field("title"))
-        if "author" in self.fields: self.fields["author"].delete(0, tk.END); self.fields["author"].insert(0, get_field("author"))
-        if "year" in self.fields: self.fields["year"].delete(0, tk.END); self.fields["year"].insert(0, get_field("year"))
-        if "publisher" in self.fields: 
-            pub = get_field("publisher") or get_field("journal")
-            self.fields["publisher"].delete(0, tk.END); self.fields["publisher"].insert(0, pub)
-        if "doi" in self.fields: self.fields["doi"].delete(0, tk.END); self.fields["doi"].insert(0, get_field("doi") or get_field("url"))
-        
-        # Key is defined in the first line @type{KEY,
-        m_key = re.search(r'@\w+\{([^,]+),', bibtex)
-        if m_key and "id" in self.fields:
-             self.fields["id"].delete(0, tk.END)
-             self.fields["id"].insert(0, m_key.group(1))
+        fields_data = data["fields"]
+        if "title" in self.fields: self.fields["title"].delete(0, tk.END); self.fields["title"].insert(0, fields_data["title"])
+        if "author" in self.fields: self.fields["author"].delete(0, tk.END); self.fields["author"].insert(0, fields_data["author"])
+        if "year" in self.fields: self.fields["year"].delete(0, tk.END); self.fields["year"].insert(0, fields_data["year"])
+        if "publisher" in self.fields: self.fields["publisher"].delete(0, tk.END); self.fields["publisher"].insert(0, fields_data["publisher"])
+        if "doi" in self.fields: self.fields["doi"].delete(0, tk.END); self.fields["doi"].insert(0, fields_data["doi"])
+        if "id" in self.fields and fields_data.get("id"):
+             self.fields["id"].delete(0, tk.END); self.fields["id"].insert(0, fields_data["id"])
 
         msg.showinfo("Successo", "Dati importati dal DOI!")
+
+
