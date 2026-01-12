@@ -42,6 +42,8 @@ def build():
     print(f"Bundling Tcl from: {tcl_root} -> tcl")
     print(f"Bundling Tk from:  {tk_root} -> tk")
 
+    assets_path = project_root / "assets"
+    
     # PyInstaller arguments
     args = [
         str(project_root / "run.py"), # CHANGED: Use root run.py
@@ -52,6 +54,7 @@ def build():
         f'--add-data={ctk_path};customtkinter/',
         f'--add-data={bin_path};bin/',
         f'--add-data={templates_path};templates/',
+        f'--add-data={assets_path};assets/',
         
         # Simplified mapping
         f'--add-data={tcl_root};tcl/',

@@ -1,221 +1,99 @@
-
-from pathlib import Path
-import shutil
+import subprocess
+import threading
 import re
-from .pandoc_wrapper import PandocWrapper
-from .typst_wrapper import TypstWrapper
-from src.utils.paths import get_templates_dir
-from src.utils.logger import get_logger
-
-from src.engine.models import ProjectManifest
-
-class CompilerEngine:
-    def __init__(self, project_root: Path, manifest: ProjectManifest = None):
-        self.project_root = project_root
-        self.manifest = manifest
-        # Implicit structure based on SDD
-        self.temp_dir = self.project_root / ".thesis_data" / "temp"
-        self.chapters_dir = self.project_root / "chapters"
-        self.assets_dir = self.project_root / "assets"
-        self.master_file = self.project_root / "master.typ"
-        self.output_pdf = self.project_root / "Tesi_Finale.pdf"
-        
-        self.pandoc = PandocWrapper()
-        self.typst = TypstWrapper()
-        self.logger = get_logger()
-
-    def _prepare_temp(self):
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
-
-    def _resolve_includes(self, content: str, base_path: Path) -> str:
-        """
-        Recursively replaces {{ include: filename.md }} with file content.
-        """
-        pattern = re.compile(r'\{\{\s*include:\s*["\']?(.*?)["\']?\s*\}\}')
-        
-        def replace_match(match):
-            filename = match.group(1).strip()
-            file_path = base_path / filename
-            
-            if file_path.exists():
-                sub_content = file_path.read_text(encoding="utf-8")
-                return self._resolve_includes(sub_content, base_path)
-            else:
-                self.logger.warning(f"Include file not found: {filename} in {base_path}")
-                return f"\n> **Errore: File mancante {filename}**\n"
-
-        return pattern.sub(replace_match, content)
-
-    def _concatenate_chapters(self) -> str:
-        if self.manifest:
-            full_text = ""
-            for chap in self.manifest.chapters:
-                path = self.chapters_dir / chap.filename
-                
-                chapter_content = ""
-                
-                if path.is_dir():
-                    # Folder Structure: Look for master.md
-                    master_file = path / "master.md"
-                    if master_file.exists():
-                        raw_content = master_file.read_text(encoding="utf-8")
-                        chapter_content = self._resolve_includes(raw_content, path)
-                    else:
-                        chapter_content = f"\n*Master file mancante in: {chap.filename}*\n"
-                elif path.exists():
-                    # Flat File Structure (Legacy)
-                    raw_content = path.read_text(encoding="utf-8")
-                    
-                    # AUTO-INCLUDE ORPHANS: Scan for unreferenced subsections
-                    sub_dir = self.chapters_dir / chap.id
-                    if sub_dir.is_dir():
-                        # Extract existing includes to avoid duplicates
-                        existing_includes = set()
-                        include_pattern = re.compile(r'\{\{\s*include:\s*["\']?(.*?)["\']?\s*\}\}')
-                        for match in include_pattern.finditer(raw_content):
-                            existing_includes.add(match.group(1).strip())
-
-                        for subfile in sorted(sub_dir.glob("*.md")):
-                            if subfile.name == "master.md": continue
-                            
-                            # The include path expected is relative to self.chapters_dir (path.parent)
-                            # e.g. "chap_id/sub.md"
-                            rel_include = f"{chap.id}/{subfile.name}"
-                            
-                            if rel_include not in existing_includes:
-                                self.logger.info(f"Auto-including orphan subsection: {rel_include}")
-                                raw_content += f"\n\n{{{{ include: {rel_include} }}}}"
-
-                    chapter_content = self._resolve_includes(raw_content, path.parent)
-                else:
-                    self.logger.warning(f"Chapter file missing (Ghost): {chap.filename}")
-                    chapter_content = f"\n\n*Contenuto Mancante: {chap.filename}*\n\n"
-                
-                full_text += chapter_content + "\n\n"
-            return full_text
-
-        # Fallback: alphabetical (should rarely happen if manifest is passed)
-
-        # Fallback: alphabetical
-        md_files = sorted(self.chapters_dir.glob("*.md"))
-        full_text = ""
-        for md in md_files:
-            full_text += md.read_text(encoding="utf-8") + "\n\n"
-        return full_text
-
-    def compile(self, output_format="pdf"):
-        self.logger.info(f"Starting compilation to {output_format}...")
-        self.logger.info("Step 1: Preparing build environment...")
-        self._prepare_temp()
-
-        # Generate metadata.typ for Front Matter
-        self._generate_typst_metadata()
-
-        self.logger.info("Step 2: Aggregating content...")
-        full_markdown = self._concatenate_chapters()
-        
-        # Inject Bibliography Metadata if references.bib exists
-        bib_path = self.project_root / "references.bib"
-        if bib_path.exists():
-            self.logger.info("Bibliography found, injecting metadata...")
-            # Prepend YAML metadata for Pandoc
-            yaml_block = "---\nbibliography: references.bib\n---\n\n"
-            full_markdown = yaml_block + full_markdown
-
-        if not full_markdown:
-            self.logger.warning("Warning: No markdown content found.")
-            full_markdown = "*Nessun contenuto.*"
-
-        if output_format == "pdf":
-            self.logger.info("Step 3: Converting Markdown -> Typst (Pandoc) -> PDF...")
-            # Use Pandoc to convert MD -> Typst
-            compiled_body_path = self.temp_dir / "compiled_body.typ"
-            try:
-                self.pandoc.convert_markdown_to_typst(full_markdown, compiled_body_path)
-            except RuntimeError as e:
-                # Pandoc failed
-                 self.logger.error(f"Pandoc failed: {e}")
-                 raise CompilationError("Errore Pandoc (MD -> Typst)", details=str(e))
-
-            try:
-                 self.typst.compile(self.master_file, self.output_pdf)
-            except RuntimeError as e:
-                 msg = str(e)
-                 if "Typst failed:" in msg:
-                     stderr = msg.split("Typst failed:", 1)[1].strip()
-                     self.logger.error(f"Typst failed: {stderr}")
-                     raise CompilationError("Errore durante la compilazione Typst", details=stderr)
-                 self.logger.error(f"Typst compilation failed: {e}")
-                 raise e
-            self.logger.info(f"Done! Output at: {self.output_pdf}")
-
-        elif output_format == "docx":
-             self.logger.info("Step 3: Converting Markdown -> DOCX (Pandoc)...")
-             docx_path = self.project_root / "Tesi_Finale.docx"
-             # Pandoc directly MD -> DOCX
-             # We might need to handle reference-doc or templating later
-             cmd = [str(self.pandoc.exe), "--from", "markdown", "--to", "docx", "--output", str(docx_path)]
-             # If bibliography
-             if bib_path.exists():
-                 cmd.append("--citeproc")
-                 # Pandoc needs bib file passed? Usually handled by YAML block I injected.
-             
-             import subprocess
-             # Write full_markdown to temp file first
-             temp_md = self.temp_dir / "full_source.md"
-             temp_md.write_text(full_markdown, encoding="utf-8")
-             
-             cmd.append(str(temp_md))
-             subprocess.run(cmd, check=True)
-             self.logger.info(f"Done! DOCX at: {docx_path}")
-             
-        elif output_format == "tex":
-             self.logger.info("Step 3: Converting Markdown -> LaTeX (Pandoc)...")
-             tex_path = self.project_root / "Tesi_Finale.tex"
-             temp_md = self.temp_dir / "full_source.md"
-             temp_md.write_text(full_markdown, encoding="utf-8")
-             
-             cmd = [str(self.pandoc.exe), "--from", "markdown", "--to", "latex", "--standalone", "--output", str(tex_path)]
-             if bib_path.exists(): cmd.append("--citeproc")
-             cmd.append(str(temp_md))
-             
-             import subprocess
-             subprocess.run(cmd, check=True)
-             self.logger.info(f"Done! LaTeX at: {tex_path}")
-        
-        self.logger.info(f"Done! Output at: {self.output_pdf}")
-
-    def _generate_typst_metadata(self):
-        # Reads manifest and writes .thesis_data/temp/metadata.typ
-        metadata_content = ""
-        
-        if self.manifest:
-            title = self.manifest.title
-            candidate = self.manifest.candidate
-            supervisor = self.manifest.supervisor
-            year = self.manifest.year
-            author = self.manifest.author
-            
-            metadata_content = f'''
-#let title = "{title}"
-#let candidate = "{candidate}"
-#let supervisor = "{supervisor}"
-#let year = "{year}"
-#let author = "{author}"
-'''
-        
-        (self.temp_dir / "metadata.typ").write_text(metadata_content, encoding="utf-8")
-
-    def _create_default_master(self):
-        print("Master file not found, creating default...")
-        default_master = get_templates_dir() / "master_default.typ"
-        if default_master.exists():
-            shutil.copy(default_master, self.master_file)
-        else:
-             # Fallback
-            self.master_file.write_text('#include ".thesis_data/temp/compiled_body.typ"', encoding="utf-8")
+from pathlib import Path
+from typing import Callable, Optional
+from src.utils.paths import get_typst_exe
 
 class CompilationError(Exception):
-    def __init__(self, message, details=""):
+    def __init__(self, message, details=None):
         super().__init__(message)
         self.details = details
+
+class AsyncCompiler:
+    def __init__(self):
+        self._process: Optional[subprocess.Popen] = None
+        self._lock = threading.Lock()
+
+    def compile(self, project_path: Path, on_success: Callable[[Path], None], on_error: Callable[[Exception], None]):
+        """
+        Starts compilation in a separate thread.
+        """
+        def _run():
+            try:
+                pdf_path = self._compile_sync(project_path)
+                on_success(pdf_path)
+            except Exception as e:
+                on_error(e)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _compile_sync(self, project_path: Path) -> Path:
+        """
+        Blocking compilation logic.
+        """
+        typst_exe = get_typst_exe()
+        if not typst_exe.exists():
+            raise CompilationError("Typst executable not found.")
+
+        input_file = project_path / "master.typ"
+        output_file = project_path / f"{project_path.name}.pdf"
+        
+        # Ensure input exists
+        if not input_file.exists():
+             # Try to generate it if logic allows, or error
+             # For now, error
+             raise CompilationError("master.typ not found in project.")
+
+        cmd = [str(typst_exe), "compile", str(input_file), str(output_file), "--root", str(project_path)]
+        
+        # Capture output for error parsing
+        try:
+            with self._lock:
+                self._process = subprocess.Popen(
+                    cmd, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=project_path
+                )
+            
+            stdout, stderr = self._process.communicate()
+            
+            if self._process.returncode != 0:
+                friendly_error = self._parse_error(stderr)
+                raise CompilationError("Errore durante la compilazione", details=friendly_error)
+            
+            return output_file
+            
+        except OSError as e:
+             raise CompilationError(f"OS Error: {e}")
+        finally:
+             with self._lock:
+                 self._process = None
+
+    def _parse_error(self, stderr: str) -> str:
+        """
+        Parses Typst stderr to extract meaningful error messages.
+        """
+        lines = stderr.split('\n')
+        parsed = []
+        for line in lines:
+            if "error:" in line:
+                # Extract file and line info if possible
+                # Format: error: <msg> at <file>:<line>:<col>
+                parsed.append(f"❌ {line.strip()}")
+            elif "warning:" in line:
+                 parsed.append(f"⚠️ {line.strip()}")
+            elif line.strip():
+                 parsed.append(line.strip())
+        
+        if not parsed:
+            return stderr # Return raw if no pattern matched
+            
+        return "\n".join(parsed)
+
+    def cancel(self):
+        with self._lock:
+            if self._process:
+                self._process.terminate()

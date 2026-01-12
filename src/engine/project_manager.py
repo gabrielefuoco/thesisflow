@@ -3,9 +3,11 @@ import json
 import uuid
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Callable
 from src.engine.models import ProjectManifest, Chapter
 from src.utils.paths import get_templates_dir
+
+from src.engine.citation_service import BibliographyService
 
 class ProjectManager:
     def __init__(self, projects_root: Path = None):
@@ -18,6 +20,7 @@ class ProjectManager:
         self.projects_root.mkdir(parents=True, exist_ok=True)
         self.current_project_path: Optional[Path] = None
         self.manifest: Optional[ProjectManifest] = None
+        self.bib_service = BibliographyService()
 
     def list_projects(self) -> List[Path]:
         """Returns a list of valid project directories."""
@@ -40,13 +43,7 @@ class ProjectManager:
 
     def get_citation_keys(self) -> List[str]:
         """Extracts citation keys from the project's bibliography."""
-        if not self.current_project_path: return []
-        bib_path = self.current_project_path / "references.bib"
-        if not bib_path.exists(): return []
-        
-        import re
-        content = bib_path.read_text(encoding="utf-8")
-        return re.findall(r'@\w+\{([^,]+),', content)
+        return self.bib_service.get_citation_keys()
 
     def list_assets(self) -> List[Path]:
         """Returns list of asset files in the project."""
@@ -116,6 +113,10 @@ class ProjectManager:
         # Create first chapter default
         self.create_chapter("Capitolo 1: Introduzione")
         
+        # Init Bib
+        (project_dir / "references.bib").touch()
+        self.bib_service.load_bibliography(project_dir / "references.bib")
+        
         return project_dir
 
     def list_templates(self) -> List[str]:
@@ -141,6 +142,7 @@ class ProjectManager:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.manifest = ProjectManifest.from_dict(data)
         self.current_project_path = project_dir
+        self.bib_service.load_bibliography(project_dir / "references.bib")
 
     def create_chapter(self, title: str) -> Chapter:
         if not self.manifest or not self.current_project_path:
@@ -190,12 +192,111 @@ class ProjectManager:
             with open(master_chapter, "a", encoding="utf-8") as f:
                 f.write(include_directive)
 
-    def update_chapter_content(self, chapter: Chapter, content: str):
-        if not self.current_project_path:
-            raise RuntimeError("No project loaded")
+    def export_project(self, project_path: Path, export_path: Path):
+        """Exports the project as a ZIP archive."""
+        import shutil
+        if not project_path.exists():
+            raise FileNotFoundError("Project path not found")
         
-        # Save content
-        file_path = self.current_project_path / "chapters" / f"{chapter.id}.md"
+        # Create zip
+        base_name = str(export_path).replace(".zip", "")
+        shutil.make_archive(base_name, 'zip', project_path)
+
+    def import_project(self, zip_path: Path) -> Path:
+        """Imports a project from a ZIP archive."""
+        import shutil
+        if not zip_path.exists():
+            raise FileNotFoundError("Zip file not found")
+            
+        # Extract to temp first to read manifest?
+        # Or just extract to projects root with unique name
+        # Assumption: Zip contains project folder or contents?
+        # Let's extract to a temp folder to check name
+        temp_dir = self.projects_root / ".temp_import"
+        if temp_dir.exists(): shutil.rmtree(temp_dir)
+        temp_dir.mkdir()
+        
+        shutil.unpack_archive(zip_path, temp_dir)
+        
+        # Check structure
+        # If single folder inside, move it. If loose files, move temp_dir as project.
+        items = list(temp_dir.iterdir())
+        if len(items) == 1 and items[0].is_dir():
+             candidate = items[0]
+        else:
+             candidate = temp_dir
+             
+        manifest_file = candidate / ".thesis_data" / "manifest.json"
+        
+        if not manifest_file.exists():
+             shutil.rmtree(temp_dir)
+             raise ValueError("Il file ZIP non contiene un progetto ThesisFlow valido (manifest.json mancante).")
+             
+        # Read Manifest for name
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        title = data.get("title", "Imported Project")
+        
+        # Determine unique destination
+        safe_name = "".join([c for c in title if c.isalnum() or c in (' ', '_', '-')]).strip()
+        dest_path = self.projects_root / safe_name
+        counter = 1
+        while dest_path.exists():
+             dest_path = self.projects_root / f"{safe_name}_{counter}"
+             counter += 1
+             
+        shutil.move(candidate, dest_path)
+        if temp_dir.exists(): shutil.rmtree(temp_dir) # Cleanup if we didn't move it directly
+        
+        return dest_path
+
+    def delete_project(self, project_path: Path):
+        """Deletes a project directory."""
+        import shutil
+        if project_path.exists():
+            shutil.rmtree(project_path)
+
+    def resolve_doi(self, doi: str) -> dict:
+        """Resolves a DOI to BibTeX fields using crossref.org."""
+        import urllib.request
+        import json
+        
+        # Clean DOI
+        doi = doi.replace("http://doi.org/", "").replace("https://doi.org/", "")
+        
+        url = f"https://api.crossref.org/works/{doi}"
+        try:
+            with urllib.request.urlopen(url) as response:
+                if response.status != 200:
+                    raise Exception(f"HTTP {response.status}")
+                data = json.loads(response.read().decode())
+                item = data.get("message", {})
+                
+                # Map to fields
+                fields = {
+                    "id": item.get("DOI", "").split("/")[-1], # Simple ID gen
+                    "title": item.get("title", [""])[0],
+                    "author": " and ".join([f"{a.get('family', '')}, {a.get('given', '')}" for a in item.get("author", [])]),
+                    "year": str(item.get("issued", {}).get("date-parts", [[0]])[0][0]),
+                    "publisher": item.get("publisher", ""),
+                    "doi": item.get("DOI", "")
+                }
+                
+                return {"type": item.get("type", "misc"), "fields": fields}
+        except Exception as e:
+            raise Exception(f"Errore nel recupero DOI: {e}")
+
+    def update_settings(self, settings: dict):
+        if not self.manifest: return
+        self.manifest.bib_style = settings.get("citation_style", self.manifest.bib_style)
+        self.manifest.template = settings.get("template", self.manifest.template)
+        # Save
+        self._save_manifest_internal(self.current_project_path, self.manifest)
+
+    def _save_manifest_internal(self, path: Path, manifest: ProjectManifest):
+        # ... logic to save manifest ...
+        mp = path / ".thesis_data" / "manifest.json"
+        mp.parent.mkdir(parents=True, exist_ok=True)
+        mp.write_text(json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
         file_path.write_text(content, encoding="utf-8")
 
     def rename_chapter(self, chapter: Chapter, new_title: str):
@@ -359,17 +460,130 @@ class ProjectManager:
                 zf.extractall(new_project_path)
                 return new_project_path
 
-    def compile_project(self) -> Path:
-        """Compiles the current project to PDF."""
+    def compile_project_async(self, on_success: Callable[[Path], None], on_error: Callable[[Exception], None], on_progress: Callable[[str], None] = None):
+        """Compiles the project asynchronously, including MD->Typst conversion."""
         if not self.current_project_path or not self.manifest:
-             raise RuntimeError("No project loaded.")
+             on_error(RuntimeError("No project loaded."))
+             return
+
+        from src.engine.compiler import AsyncCompiler, CompilationError
+        from src.engine.pandoc_wrapper import PandocWrapper
         
-        # Local import to avoid circular dependency if any
-        from src.engine.compiler import CompilerEngine
+        # We need to run the whole pipeline in a thread, 
+        # because conversion is also blocking/slow.
+        import threading
         
-        engine = CompilerEngine(self.current_project_path, self.manifest)
-        engine.compile()
-        return engine.output_pdf
+        def _pipeline():
+            try:
+                if on_progress: on_progress("Preparazione...", 0.1)
+                
+                # 1. Conversion Phase
+                pandoc = PandocWrapper()
+                temp_dir = self.current_project_path / ".thesis_data" / "temp"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                
+                compiled_body_path = temp_dir / "compiled_body.typ"
+                
+                # Logic to convert chapters
+                # We build a single body file or multiple files?
+                # Let's build individual typst files and include them.
+                
+                includes = []
+                
+                total_chapters = len(self.manifest.chapters)
+                
+                for i, chapter in enumerate(self.manifest.chapters):
+                    if on_progress: on_progress(f"Conversione {chapter.title}...", 0.1 + (0.5 * (i / total_chapters)))
+                    
+                    # Read MD
+                    md_path = self.current_project_path / "chapters" / chapter.filename
+                    if not md_path.exists(): continue
+                    
+                    md_content = md_path.read_text(encoding="utf-8")
+                    
+                    # Pre-process includes??
+                    # ThesisFlow convention: {{ include: ... }}
+                    # We might need to handle this.
+                    # Simple approach: Convert the MD content. Pandoc handles basic MD.
+                    # But if we have sub-files...
+                    # For now assume flattened or Pandoc handles it? 
+                    # Pandoc doesn't handle CUSTOM {{ include }} syntax.
+                    # We should resolve text includes first.
+                    
+                    # Resolve Includes
+                    full_md = self._resolve_includes(md_path)
+                    
+                    # Convert to Typst
+                    typ_filename = f"{chapter.id}.typ"
+                    typ_path = temp_dir / typ_filename
+                    pandoc.convert_markdown_to_typst(full_md, typ_path)
+                    
+                    # Add to master body
+                    # Typst include path relative to project root?
+                    # compiled_body.typ is in .thesis_data/temp/
+                    # if we include from compiled_body.typ using relative paths:
+                    # include "1234.typ" works if they are side-by-side.
+                    includes.append(f'#include "{typ_filename}"')
+                
+                # Write compiled_body.typ
+                compiled_body_path.write_text("\n\n".join(includes), encoding="utf-8")
+                
+                if on_progress: on_progress("Compilazione PDF...", 0.7)
+                
+                # 2. Compilation Phase
+                # Use AsyncCompiler synchronously inside this thread?
+                # AsyncCompiler.compile is async. 
+                # We can use _compile_sync if we had access, or just use subprocess directly here since we are ALREADY in a thread.
+                # Reuse AsyncCompiler logic? 
+                # Let's instantiate it and call its internal sync method if possible or just replicate.
+                # Better: AsyncCompiler is designed to be called from UI. 
+                # ProjectManager._pipeline IS the async worker here.
+                # So let's re-implement the call or make AsyncCompiler have a sync method.
+                
+                compiler = AsyncCompiler()
+                # We can't call compile() because it spawns ANOTHER thread and returns.
+                # We want to wait.
+                # Let's use compiler._compile_sync (it's protected but we are internal friend-ish).
+                # Or make it public.
+                # Let's assume we can call _compile_sync.
+                
+                pdf_path = compiler._compile_sync(self.current_project_path)
+                
+                if on_progress: on_progress("Completato!", 1.0)
+                on_success(pdf_path)
+                
+            except Exception as e:
+                on_error(e)
+
+        threading.Thread(target=_pipeline, daemon=True).start()
+
+    def _resolve_includes(self, file_path: Path, depth=0) -> str:
+        if depth > 5: return "" # Cycle protection
+        if not file_path.exists(): return ""
+        
+        content = file_path.read_text(encoding="utf-8")
+        import re
+        # Match {{ include: path/to/file.md }}
+        # Regex: \{\{\s*include:\s*(.+?)\s*\}\}
+        
+        def repl(match):
+            inc_path_str = match.group(1)
+            # Resolve relative to chapters dir? Or file dir?
+            # Convention: id/filename.md
+            # file_path is chapters/master.md or chapters/id/sub.md
+            
+            # Try resolving relative to chapters root
+            candidate = self.current_project_path / "chapters" / inc_path_str
+            if not candidate.exists():
+                return f"**Error: Check include path {inc_path_str}**"
+            
+            return self._resolve_includes(candidate, depth+1)
+            
+        return re.sub(r'\{\{\s*include:\s*(.+?)\s*\}\}', repl, content)
+
+    # Deprecated synchronous compile
+    def compile_project(self) -> Path:
+        raise NotImplementedError("Use compile_project_async")
 
     def open_generated_pdf(self, pdf_path: Path):
         """Opens the generated PDF file with the default system viewer."""

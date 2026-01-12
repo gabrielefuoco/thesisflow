@@ -27,15 +27,25 @@ class BibliographyFrame(ctk.CTkFrame):
         self.load()
 
     def load(self):
+        if not self.project_root: return
+        pm = self.winfo_toplevel().project_controller.pm # Access PM via Controller or App
+        # Or simpler if we know App structure:
+        # pm = self.winfo_toplevel().pm 
+        # Since App has self.pm = self.project_controller.pm, this works.
         pm = self.winfo_toplevel().pm
-        content = pm.get_bibliography_content()
-        self.textbox.delete("1.0", "end")
-        self.textbox.insert("1.0", content)
+        target = self.project_root / "references.bib"
+        if target.exists():
+             content = pm.read_file_content(target)
+             self.textbox.delete("1.0", "end")
+             self.textbox.insert("1.0", content)
     
     def save(self):
+        if not self.project_root: return
         pm = self.winfo_toplevel().pm
         text = self.textbox.get("1.0", "end-1c")
-        pm.save_bibliography_content(text)
+        target = self.project_root / "references.bib"
+        pm.save_file_content(target, text)
+        pm.bib_service.load_bibliography(target) # Reload service
         msg.showinfo("Info", "Bibliografia salvata.")
 
     def open_citation_dialog(self):
@@ -43,7 +53,6 @@ class BibliographyFrame(ctk.CTkFrame):
 
     def on_add_citation(self, bibtex_entry):
         self.textbox.insert(tk.END, "\n" + bibtex_entry + "\n")
-        # Auto save? Let's just update text for now.
 
 import tkinter as tk
 
@@ -128,10 +137,15 @@ class CitationDialog(ctk.CTkToplevel):
         self.btn_search.configure(state="disabled", text="⏳")
         self.entry_doi_search.configure(state="disabled")
         
+        # Allow thread to find PM safely
+        # Toplevel might be App, but accessing GUI widgets from thread is bad?
+        # Accessing `pm` instance is fine if it's thread safe.
+        # But `self.master.winfo_toplevel()` must be called in Main Thread.
+        pm = self.master.winfo_toplevel().pm
+
         import threading
         def run_lookup():
             try:
-                pm = self.master.winfo_toplevel().pm
                 data = pm.resolve_doi(doi)
                 self.after(0, lambda: self._on_lookup_success(data))
             except Exception as e:

@@ -12,14 +12,18 @@ from src.ui.bibliography import BibliographyFrame
 from src.ui.console import ConsolePanel
 from src.ui.outline import OutlinePanel
 from src.ui.theme import Theme
+from src.ui.router import ViewRouter
 
 from src.engine.compiler import CompilationError
-from src.engine.project_manager import ProjectManager
+from src.controllers.project_controller import ProjectController
+from src.controllers.session_manager import SessionManager
 from src.utils.logger import setup_logger
 from src.utils.icons import IconFactory
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("dark-blue")
+
+from src.engine.autosave import AutoSaveService
 
 class ThesisFlowApp(ctk.CTk):
     def __init__(self):
@@ -31,7 +35,13 @@ class ThesisFlowApp(ctk.CTk):
 
         self.logger = setup_logger()
         
-        self.pm = ProjectManager()
+        # Initialize Controllers
+        self.session = SessionManager()
+        self.project_controller = ProjectController()
+        
+        # Keep pm for legacy/direct access if needed for now
+        self.pm = self.project_controller.pm
+        
         self.current_chapter = None
         self.current_file_path = None
         self.view_mode = "editor"
@@ -41,12 +51,33 @@ class ThesisFlowApp(ctk.CTk):
         self._saved_project_path = None
         self._saved_chapter_id = None
         
-        # Autosave Timer
-        self.autosave_interval = 60000 
-        self.after(self.autosave_interval, self.autosave_loop)
+        # Autosave Service
+        self.autosave_service = AutoSaveService(self.autosave_callback, interval_seconds=60)
+        self.autosave_service.start()
 
         self.check_dependencies()
         self.setup_ui()
+        self.setup_router()
+
+    def setup_router(self):
+        self.router = ViewRouter(self)
+        
+        # Dashboard View
+        self.router.register_view("dashboard", self.dashboard, 
+                                  on_enter=lambda: self.dashboard.refresh_list())
+        
+        # Main Interface (Editor)
+        self.router.register_view("editor", self.main_interface,
+                                  on_exit=self._on_exit_editor)
+                                  
+        # Initial View
+        self.router.navigate("dashboard")
+
+    def _on_exit_editor(self):
+        if self.is_dirty:
+            self.save_current_file()
+        self.current_chapter = None
+        self.current_file_path = None
 
     def setup_ui(self):
         # Apply Theme BG
@@ -57,8 +88,8 @@ class ThesisFlowApp(ctk.CTk):
 
         # --- Views ---
         # 1. Dashboard
-        self.dashboard = DashboardFrame(self, self.pm, on_project_selected=self.open_project)
-        self.dashboard.grid(row=0, column=0, sticky="nsew")
+        self.dashboard = DashboardFrame(self, self.project_controller, on_project_selected=self.open_project)
+        # Grid management moved to router
 
         # 2. Main Interface
         self.main_interface = ctk.CTkFrame(self, fg_color="transparent")
@@ -75,7 +106,7 @@ class ThesisFlowApp(ctk.CTk):
                                     on_rename_chapter=self.rename_chapter_dialog,
                                     on_delete_chapter=self.delete_chapter_confirm,
                                     on_theme_toggle=self.toggle_theme,
-                                    on_back=self.show_dashboard) # Passed callback
+                                    on_back=lambda: self.router.navigate("dashboard")) # Using router
         self.sidebar.grid(row=0, column=0, sticky="nsew")
 
         # Content Area
@@ -168,12 +199,18 @@ class ThesisFlowApp(ctk.CTk):
         self.reload_ui()
 
     def reload_ui(self):
+        # Stop existing autosave before destroy
+        if hasattr(self, 'autosave_service'):
+            self.autosave_service.stop()
+
         # Destroy all children
         for widget in self.winfo_children():
             widget.destroy()
         
         # Re-build
         self.setup_ui()
+        # Restart autosave
+        self.autosave_service.start()
 
     def check_dependencies(self):
         missing = self.pm.check_system_health()
@@ -184,7 +221,7 @@ class ThesisFlowApp(ctk.CTk):
 
     def open_project(self, path: Path):
         try:
-            self.pm.load_project(path)
+            self.project_controller.load_project(path)
             self.show_editor_interface()
             self.refresh_sidebar()
             if self.pm.manifest.chapters:
@@ -203,41 +240,33 @@ class ThesisFlowApp(ctk.CTk):
             msg.showerror("Errore Caricamento", str(e))
 
     def show_editor_interface(self):
-        self.dashboard.grid_forget()
-        self.main_interface.grid(row=0, column=0, sticky="nsew")
+        self.router.navigate("editor")
         self.title(f"ThesisFlow - {self.pm.manifest.title}")
 
     def show_dashboard(self):
-        if self.is_dirty: self.save_current_file()
-        
-        self.current_chapter = None
-        self.current_file_path = None
-        self.pm.current_project_path = None
-        self.pm.manifest = None
-        self._saved_project_path = None # Clear "last open" state
-        
+        self.router.navigate("dashboard")
         self.title("ThesisFlow - Write Markdown, Publish Typst")
-        self.main_interface.grid_forget()
-        self.dashboard.refresh_list()
-        self.dashboard.grid(row=0, column=0, sticky="nsew")
 
     def refresh_sidebar(self):
         if self.pm.manifest:
             self.sidebar.update_chapters(self.pm.manifest.chapters)
             self.sidebar.refresh_assets()
 
+    def _ensure_editor_mode(self):
+        """Helper to switch from bibliography back to editor mode."""
+        if self.view_mode == "bibliography":
+            if self.bib_editor:
+                self.bib_editor.save()
+                self.bib_editor.grid_forget()
+            self.view_mode = "editor"
+            self.editor.grid(row=2, column=0, sticky="nsew", padx=0, pady=10)
+
     def load_chapter(self, chapter):
+        self._ensure_editor_mode()
         self.lbl_chapter_title.configure(text=chapter.title)
         
-        if self.view_mode == "editor" and self.current_file_path:
+        if self.current_file_path:
              self.save_current_file()
-        elif self.view_mode == "bibliography" and self.bib_editor:
-             self.bib_editor.save()
-             self.bib_editor.grid_forget()
-
-        self.view_mode = "editor"
-        if self.bib_editor: self.bib_editor.grid_forget() # Ensure hidden
-        self.editor.grid(row=2, column=0, sticky="nsew", padx=0, pady=10)
 
         self.current_chapter = chapter
         if self.pm.current_project_path:
@@ -246,7 +275,8 @@ class ThesisFlowApp(ctk.CTk):
              self.editor.set_text(content)
     
     def load_file(self, path: Path, parent_chapter):
-        if self.view_mode == "editor" and self.current_file_path:
+        self._ensure_editor_mode()
+        if self.current_file_path:
              self.save_current_file()
              
         self.lbl_chapter_title.configure(text=f"{parent_chapter.title} > {path.stem.replace('_', ' ')}")
@@ -258,11 +288,17 @@ class ThesisFlowApp(ctk.CTk):
              self.editor.set_text(content)
 
     def open_bibliography(self):
+        # Toggle back to editor if already in bibliography
+        if self.view_mode == "bibliography":
+            if self.current_chapter:
+                self.load_chapter(self.current_chapter)
+            return
+
         if self.view_mode == "editor" and self.current_chapter:
             self.save_current_chapter()
         
         self.view_mode = "bibliography"
-        self.current_chapter = None
+        # We don't clear current_chapter anymore to allow toggling back
         self.editor.grid_forget()
         
         if not self.bib_editor:
@@ -270,6 +306,11 @@ class ThesisFlowApp(ctk.CTk):
         else:
             self.bib_editor.project_root = self.pm.current_project_path
             self.bib_editor.load()
+        
+        # Bibliography is currently a "sub-view" inside content_area
+        # We might want to make it a primary view in the future, 
+        # but for now we'll keep the current grid management for bibliography
+        # since it's nested inside the main interface.
         self.bib_editor.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
     def on_compile(self, fmt="pdf"):
@@ -284,24 +325,24 @@ class ThesisFlowApp(ctk.CTk):
         self.show_toast("Compilazione avviata...")
         self.logger.info(f"Compiling project: {self.pm.current_project_path}")
         
-        # Auto-expand console
         if self.console_panel.is_collapsed:
             self.console_panel.toggle_collapse()
-        
-        def run_compile():
-            try:
-                pdf_path = self.pm.compile_project()
-                self.after(0, lambda p=pdf_path: self._on_compile_success(p))
-            except CompilationError as e:
-                err_copy = e 
-                self.after(0, lambda err=err_copy: self._on_compile_error(err))
-            except Exception as e:
-                err_msg = str(e)
-                self.after(0, lambda m=err_msg: msg.showerror("Errore Generico", m))
-            finally:
-                 self.after(0, self._on_compile_finished)
+            
+        def on_success(pdf_path):
+            self.after(0, lambda: self._on_compile_success(pdf_path))
+            self.after(0, lambda: self._on_compile_finished())
 
-        threading.Thread(target=run_compile, daemon=True).start()
+        def on_error(error):
+            self.after(0, lambda: self._on_compile_error(error))
+            self.after(0, lambda: self._on_compile_finished())
+            
+        def on_progress(status, fraction):
+            # Update UI with progress? For now just log or toast updates
+            # self.after(0, lambda: self.show_toast(status, 1000))
+            pass
+
+        self.pm.compile_project_async(on_success, on_error, on_progress)
+
 
     def _on_compile_success(self, pdf_path):
         msg.showinfo("Compilazione", f"PDF generato con successo:\n{pdf_path}")
@@ -331,10 +372,15 @@ class ThesisFlowApp(ctk.CTk):
     def mark_dirty(self):
         self.is_dirty = True
     
-    def autosave_loop(self):
+    def autosave_callback(self):
+        # Safe to access UI variables? 
+        # AutosaveService runs on thread, so NO!
+        # We need to schedule this on main thread
+        self.after(0, self._autosave_logic)
+        
+    def _autosave_logic(self):
         if self.is_dirty and self.view_mode == "editor" and self.current_file_path:
             self.save_current_file()
-        self.after(self.autosave_interval, self.autosave_loop)
 
     def save_current_file(self):
         if self.current_file_path:
@@ -388,5 +434,7 @@ class ThesisFlowApp(ctk.CTk):
         return self.pm.get_citation_keys()
 
     def on_close(self):
+        if hasattr(self, 'autosave_service'):
+            self.autosave_service.stop()
         if self.is_dirty: self.save_current_file()
         self.destroy()

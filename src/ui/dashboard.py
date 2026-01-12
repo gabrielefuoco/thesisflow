@@ -37,15 +37,22 @@ class ProjectCard(ctk.CTkFrame):
             self.lbl_date = ctk.CTkLabel(self, text=mtime.strftime("%d/%m/%Y"), font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
             self.lbl_date.grid(row=0, column=2, padx=10, sticky="e")
             
+            # Export Button (Small)
+            self.btn_export = ctk.CTkButton(self, text="", image=IconFactory.get_icon("file", size=(16,16)), # Fallback to generic file icon
+                                            fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER, width=30, height=30,
+                                            command=lambda: on_export(project_path))
+            self.btn_export.grid(row=0, column=3, padx=(0, 5), sticky="e")
+
             # Delete Button (Small)
             self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(16,16)),
                                         fg_color="transparent", hover_color="#CF0000", width=30, height=30,
                                         command=lambda: on_delete(project_path))
-            self.btn_del.grid(row=0, column=3, padx=(0, 10), sticky="e")
+            self.btn_del.grid(row=0, column=4, padx=(0, 10), sticky="e")
             
             self.grid_columnconfigure(1, weight=1)
             self.grid_columnconfigure(2, weight=0)
             self.grid_columnconfigure(3, weight=0)
+            self.grid_columnconfigure(4, weight=0)
 
         else:
             # Full Card for "Recent"
@@ -59,7 +66,14 @@ class ProjectCard(ctk.CTkFrame):
             self.lbl_date = ctk.CTkLabel(self, text=f"Modificato: {mtime.strftime('%d/%m/%Y')}", font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
             self.lbl_date.grid(row=2, column=0, padx=15, pady=(5, 20), sticky="ew")
             
-            # Delete Button (Floating or Corner?) -> Let's put it top-right
+            # Export Button
+            self.btn_export = ctk.CTkButton(self, text="Export", font=("Segoe UI", 11),
+                                            fg_color="transparent", border_width=1, border_color=Theme.COLOR_BORDER,
+                                            hover_color=Theme.COLOR_PANEL_HOVER, width=60, height=24,
+                                            command=lambda: on_export(project_path))
+            self.btn_export.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
+            
+            # Delete Button (Floating)
             self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(16,16)),
                                         fg_color="transparent", hover_color="#CF0000", width=30, height=30,
                                         command=lambda: on_delete(project_path))
@@ -78,9 +92,9 @@ class ProjectCard(ctk.CTkFrame):
         self.configure(fg_color=Theme.COLOR_PANEL, border_color=Theme.COLOR_BORDER)
 
 class DashboardFrame(ctk.CTkFrame):
-    def __init__(self, master, project_manager, on_project_selected: Callable[[Path], None], **kwargs):
+    def __init__(self, master, project_controller, on_project_selected: Callable[[Path], None], **kwargs):
         super().__init__(master, fg_color=Theme.COLOR_BG, **kwargs)
-        self.pm = project_manager
+        self.controller = project_controller
         self.on_project_selected = on_project_selected
 
         self.grid_columnconfigure(0, weight=1)
@@ -118,7 +132,7 @@ class DashboardFrame(ctk.CTkFrame):
         for widget in self.scrollable.winfo_children():
             widget.destroy()
 
-        projects = self.pm.list_projects()
+        projects = self.controller.list_projects()
         projects.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
         if not projects:
@@ -176,7 +190,7 @@ class DashboardFrame(ctk.CTkFrame):
         path = filedialog.askopenfilename(filetypes=[("Zip Files", "*.zip")])
         if path:
             try:
-                new_path = self.pm.import_project(Path(path))
+                new_path = self.controller.import_project(Path(path))
                 self.refresh_list()
                 msg.showinfo("Successo", f"Progetto importato: {new_path.name}")
             except Exception as e:
@@ -189,7 +203,7 @@ class DashboardFrame(ctk.CTkFrame):
         path = filedialog.asksaveasfilename(initialfile=default_name, filetypes=[("Zip Files", "*.zip")])
         if path:
             try:
-                self.pm.export_project(project_path, Path(path))
+                self.controller.export_project(project_path, Path(path))
                 msg.showinfo("Successo", "Esportazione completata.")
             except Exception as e:
                 msg.showerror("Errore Export", str(e))
@@ -197,13 +211,13 @@ class DashboardFrame(ctk.CTkFrame):
     def delete_project_confirm(self, project_path):
         if msg.askyesno("Elimina Progetto", f"Sei sicuro di voler eliminare definitivamente il progetto:\n'{project_path.name}'?\n\nQuesta azione non è reversibile."):
             try:
-                self.pm.delete_project(project_path)
+                self.controller.delete_project(project_path)
                 self.refresh_list()
             except Exception as e:
                 msg.showerror("Errore Eliminazione", str(e))
 
     def create_new_project(self):
-        templates = self.pm.list_templates()
+        templates = self.controller.get_templates()
         dialog = NewProjectDialog(self, templates)
         self.wait_window(dialog)
         
@@ -212,10 +226,9 @@ class DashboardFrame(ctk.CTkFrame):
                 name = dialog.result["title"]
                 author = dialog.result["author"]
                 template_path = dialog.result.get("template_path")
-                self.pm.create_project(name, author=author, template_path=template_path)
                 
-                # Update additional settings immediately
-                self.pm.update_settings(dialog.result)
+                # Combine creation and update
+                self.controller.create_project(name, author=author, template_path=template_path, **dialog.result)
                 
                 self.refresh_list()
                 msg.showinfo("Successo", f"Progetto creato: {name}")

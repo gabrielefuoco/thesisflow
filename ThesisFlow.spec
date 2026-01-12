@@ -1,59 +1,27 @@
-# thesisflow.spec
 # -*- mode: python ; coding: utf-8 -*-
-
 from PyInstaller.utils.hooks import collect_all
-import os
-import customtkinter
-import sys
-from pathlib import Path
 
-# 1. Raccogli dati e binari di CustomTkinter (gestisce temi e json)
-datas = []
+datas = [('C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\customtkinter', 'customtkinter/'), ('C:\\Users\\gabri\\APP\\thesisflow\\bin', 'bin/'), ('C:\\Users\\gabri\\APP\\thesisflow\\templates', 'templates/'), ('C:\\Users\\gabri\\APP\\thesisflow\\assets', 'assets/'), ('C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python311\\tcl\\tcl8.6', 'tcl/'), ('C:\\Users\\gabri\\AppData\\Local\\Programs\\Python\\Python311\\tcl\\tk8.6', 'tk/')]
 binaries = []
 hiddenimports = []
+tmp_ret = collect_all('src')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-# Raccogli tutto ciò che serve a CustomTkinter e src
-tmp_ret = collect_all('customtkinter')
-datas += tmp_ret[0]
-binaries += tmp_ret[1]
-hiddenimports += tmp_ret[2]
-
-# Raccogli il tuo pacchetto src
-tmp_ret_src = collect_all('src')
-datas += tmp_ret_src[0]
-hiddenimports += tmp_ret_src[2]
-
-# 2. Aggiungi le tue cartelle risorse (bin, templates)
-# Sintassi: (percorso_origine, percorso_destinazione)
-# We need absolute paths for safety
-project_root = os.getcwd()
-
-datas += [
-    (os.path.join(project_root, 'bin'), 'bin'),
-    (os.path.join(project_root, 'templates'), 'templates'),
-    (os.path.join(project_root, 'assets'), 'assets'),
-    (os.path.join(project_root, 'locales'), 'locales'),
-    (os.path.join(project_root, 'src'), 'src')  # Inclusione esplicita del codice sorgente se serve riflessione
-]
-
-block_cipher = None
 
 a = Analysis(
-    ['run.py'],  # Punto di ingresso
-    pathex=[project_root],
+    ['C:\\Users\\gabri\\APP\\thesisflow\\run.py'],
+    pathex=['C:\\Users\\gabri\\APP\\thesisflow'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=['hooks'],  # Usa il tuo hook esistente se serve
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
+    optimize=0,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -65,18 +33,16 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # <--- IMPORTANTE: Impostato a False per il deploy
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
-
 coll = COLLECT(
     exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
     strip=False,
     upx=True,
