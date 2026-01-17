@@ -17,7 +17,7 @@ class AccordionSection(ctk.CTkFrame):
         # Header (Clickable)
         self.header = ctk.CTkButton(self, text=title, anchor="w", 
                                     fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER,
-                                    text_color=Theme.TEXT_DIM, font=("Segoe UI", 12, "bold"),
+                                    text_color=Theme.TEXT_DIM, font=(Theme.FONT_FAMILY, 13, "bold"),
                                     command=self.toggle)
         self.header.pack(fill="x")
         
@@ -72,7 +72,7 @@ class SidebarFrame(ctk.CTkFrame):
             self.btn_back.pack(side="left", padx=(10, 0), pady=10)
             ToolTip(self.btn_back, "Torna alla Dashboard")
 
-        ctk.CTkLabel(self.logo_frame, text="ThesisFlow", font=("Segoe UI", 18, "bold"), text_color=Theme.TEXT_MAIN).pack(side="left", padx=10, pady=20)
+        ctk.CTkLabel(self.logo_frame, text="ThesisFlow", font=(Theme.FONT_FAMILY, 20, "bold"), text_color=Theme.TEXT_MAIN).pack(side="left", padx=15, pady=20)
 
         # --- Content (Scrollable) ---
         self.scroll_container = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -121,10 +121,10 @@ class SidebarFrame(ctk.CTkFrame):
         pm = self.master.master.pm
         self.project_root = pm.current_project_path
 
-        for chapter in chapters:
-            self.render_chapter_item(chapter)
+        for i, chapter in enumerate(chapters, 1):
+            self.render_chapter_item(chapter, i)
 
-    def render_chapter_item(self, chapter: Chapter):
+    def render_chapter_item(self, chapter: Chapter, index: int):
         # Item Container
         frame = ctk.CTkFrame(self.sec_chapters.content, fg_color="transparent")
         frame.pack(fill="x")
@@ -134,27 +134,26 @@ class SidebarFrame(ctk.CTkFrame):
         bg_color = Theme.COLOR_PANEL_HOVER if is_selected else "transparent"
         text_color = Theme.COLOR_ACCENT if is_selected else Theme.TEXT_MAIN
         
-        btn = ctk.CTkButton(frame, text=chapter.title, anchor="w",
+        display_title = f"{index}. {chapter.title}"
+        btn = ctk.CTkButton(frame, text=display_title, anchor="w",
                             fg_color=bg_color, hover_color=Theme.COLOR_PANEL_HOVER,
                             text_color=text_color,
-                            font=("Segoe UI", 13),
+                            font=(Theme.FONT_FAMILY, 14, "bold"),
                             command=lambda c=chapter: self.on_chapter_click(c))
         btn.pack(fill="x", padx=0)
         
         # Context Menu
         btn.bind("<Button-3>", lambda event, c=chapter: self.show_context_menu(event, c))
         
-        # Sub-files scan
-        if self.project_root:
-            subsections = self.master.master.pm.list_subsections(chapter)
-            for f in subsections:
-                # Sub-item
-                sub_btn = ctk.CTkButton(frame, text=f"  {f.stem.replace('_', ' ')}", 
-                                      fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER,
-                                      text_color=Theme.TEXT_DIM,
-                                      anchor="w", height=24, font=("Segoe UI", 12),
-                                      command=lambda p=f, c=chapter: self.master.master.load_file(p, c))
-                sub_btn.pack(fill="x")
+        # Paragraphs (Nested)
+        for j, p in enumerate(chapter.paragraphs, 1):
+            p_display_title = f"  {index}.{j} {p.title}"
+            p_btn = ctk.CTkButton(frame, text=p_display_title,
+                                  fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER,
+                                  text_color=Theme.TEXT_DIM,
+                                  anchor="w", height=24, font=(Theme.FONT_FAMILY, 12),
+                                  command=lambda p_obj=p, c_obj=chapter: self.master.master.load_paragraph(p_obj, c_obj))
+            p_btn.pack(fill="x")
 
     def on_chapter_click(self, chapter):
         self.selected_chapter_id = chapter.id
@@ -209,6 +208,7 @@ class SidebarFrame(ctk.CTkFrame):
                             image=IconFactory.get_icon(icon, size=(12,12)),
                             anchor="w", fg_color="transparent", 
                             text_color=Theme.TEXT_MAIN, hover_color=Theme.COLOR_PANEL_HOVER,
+                            font=(Theme.FONT_FAMILY, 12), # Added font as per instruction
                             height=24,
                             command=lambda: self.insert_asset(asset_path.name))
         btn.pack(fill="x", padx=10)

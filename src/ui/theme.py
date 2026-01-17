@@ -12,31 +12,32 @@ class Theme:
     
     _current_mode = MODE_DARK
     
-    # Palette Definitions
-    _PALETTE = {
+    # Base HSL values for the Slate palette
+    # Slate 500: H=215, S=16, L=47
+    _PALETTE_HSL = {
         MODE_DARK: {
-            "BG": "#0f172a",          # Very dark slate
-            "PANEL": "#1e293b",       # Dark slate
-            "PANEL_HOVER": "#334155", # Lighter slate
-            "BORDER": "#334155",
-            "TEXT_MAIN": "#f8fafc",   # White-ish
-            "TEXT_DIM": "#94a3b8",    # Dimmed gray
-            "ACCENT": "#14b8a6",      # Teal 500
-            "ACCENT_HOVER": "#0d9488",# Teal 600
-            "EDITOR_BG": "#0f172a",
-            "EDITOR_TEXT": "#e2e8f0"
+            "BG": (222, 47, 11),           # Slate 950 equivalents
+            "PANEL": (222, 47, 15),        # Slate 900
+            "PANEL_HOVER": (217, 33, 17),  # Slate 850
+            "BORDER": (217, 32, 20),       # Slate 800
+            "TEXT_MAIN": (210, 40, 98),    # Slate 50
+            "TEXT_DIM": (215, 16, 70),     # Slate 400
+            "ACCENT": (173, 80, 40),       # Teal 500
+            "ACCENT_HOVER": (173, 80, 35), # Teal 600
+            "EDITOR_BG": (222, 47, 11),
+            "EDITOR_TEXT": (214, 32, 91)   # Slate 200
         },
         MODE_LIGHT: {
-            "BG": "#f1f5f9",          # Slate 100
-            "PANEL": "#ffffff",       # White
-            "PANEL_HOVER": "#e2e8f0", # Slate 200
-            "BORDER": "#cbd5e1",      # Slate 300
-            "TEXT_MAIN": "#0f172a",   # Slate 900
-            "TEXT_DIM": "#64748b",    # Slate 500
-            "ACCENT": "#0d9488",      # Teal 600
-            "ACCENT_HOVER": "#0f766e",# Teal 700
-            "EDITOR_BG": "#ffffff",
-            "EDITOR_TEXT": "#0f172a"
+            "BG": (210, 40, 98),           # Slate 50
+            "PANEL": (0, 0, 100),          # White
+            "PANEL_HOVER": (210, 40, 96),  # Slate 100
+            "BORDER": (214, 32, 91),       # Slate 200
+            "TEXT_MAIN": (222, 47, 11),    # Slate 950
+            "TEXT_DIM": (215, 16, 47),     # Slate 500
+            "ACCENT": (173, 80, 35),       # Teal 600
+            "ACCENT_HOVER": (173, 80, 30), # Teal 700
+            "EDITOR_BG": (0, 0, 100),
+            "EDITOR_TEXT": (222, 47, 11)   # Slate 950
         }
     }
 
@@ -47,7 +48,35 @@ class Theme:
     
     # Fonts
     import platform
-    FONT_FAMILY = "Segoe UI" if platform.system() == "Windows" else "Arial"
+    FONT_FAMILY = "Inter" if platform.system() == "Windows" else "Inter, Segoe UI, Arial"
+    
+    FONT_SIZE_MAIN = 16
+    FONT_SIZE_H1 = 24
+    FONT_SIZE_H2 = 20
+    FONT_SIZE_H3 = 18
+
+    @classmethod
+    def hsl_to_hex(cls, h, s, l):
+        """Standard HSL to Hex conversion."""
+        h /= 360
+        s /= 100
+        l /= 100
+        if s == 0:
+            r = g = b = l
+        else:
+            def hue_to_rgb(p, q, t):
+                if t < 0: t += 1
+                if t > 1: t -= 1
+                if t < 1/6: return p + (q - p) * 6 * t
+                if t < 1/2: return q
+                if t < 2/3: return p + (q - p) * (2/3 - t) * 6
+                return p
+            q = l * (1 + s) if l < 0.5 else l + s - l * s
+            p = 2 * l - q
+            r = hue_to_rgb(p, q, h + 1/3)
+            g = hue_to_rgb(p, q, h)
+            b = hue_to_rgb(p, q, h - 1/3)
+        return '#%02x%02x%02x' % (int(r * 255), int(g * 255), int(b * 255))
 
     @classmethod
     def set_mode(cls, mode):
@@ -63,7 +92,10 @@ class Theme:
 
     @classmethod
     def get_color(cls, key):
-        return cls._PALETTE[cls._current_mode].get(key, "#ff00ff")
+        hsl = cls._PALETTE_HSL[cls._current_mode].get(key)
+        if hsl:
+            return cls.hsl_to_hex(*hsl)
+        return "#ff00ff"
 
     # Dynamic Properties for easy access (getters)
     @classproperty

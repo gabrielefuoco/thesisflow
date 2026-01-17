@@ -11,7 +11,7 @@ from src.utils.icons import IconFactory
 
 class ProjectCard(ctk.CTkFrame):
     def __init__(self, master, project_path: Path, on_click: Callable, on_export: Callable, on_delete: Callable, is_compact=False, **kwargs):
-        super().__init__(master, fg_color=Theme.COLOR_PANEL, corner_radius=12, border_width=1, border_color=Theme.COLOR_BORDER, **kwargs)
+        super().__init__(master, fg_color=Theme.COLOR_PANEL, corner_radius=16, border_width=1, border_color=Theme.COLOR_BORDER, **kwargs)
         self.project_path = project_path
         self.on_click = on_click
         self.on_delete = on_delete
@@ -20,67 +20,59 @@ class ProjectCard(ctk.CTkFrame):
         self.bind("<Enter>", self.on_enter)
         self.bind("<Leave>", self.on_leave)
         
-        self.grid_columnconfigure(0, weight=1)
-        
         mtime = datetime.fromtimestamp(project_path.stat().st_mtime)
         
         if is_compact:
-            # Compact Row for "All Projects" list/grid
-            self.icon = ctk.CTkButton(self, text="", image=IconFactory.get_icon("folder", size=(24,24)), 
-                                      fg_color="transparent", hover=False, width=40,
-                                      command=lambda: on_click(project_path))
-            self.icon.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+            # Compact Row for "All Projects"
+            self.grid_columnconfigure(1, weight=1)
             
-            self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=("Segoe UI", 14, "bold"), text_color=Theme.TEXT_MAIN, anchor="w")
+            # Icon as a small badge
+            self.icon_frame = ctk.CTkFrame(self, fg_color=Theme.COLOR_BG, width=40, height=40, corner_radius=10)
+            self.icon_frame.grid(row=0, column=0, padx=15, pady=12)
+            self.icon_frame.grid_propagate(False)
+            
+            self.icon_lbl = ctk.CTkLabel(self.icon_frame, text="", image=IconFactory.get_icon("folder", size=(20,20)))
+            self.icon_lbl.place(relx=0.5, rely=0.5, anchor="center")
+            
+            self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=(Theme.FONT_FAMILY, 14, "bold"), text_color=Theme.TEXT_MAIN, anchor="w")
             self.lbl_title.grid(row=0, column=1, padx=(0,10), sticky="ew")
             
-            self.lbl_date = ctk.CTkLabel(self, text=mtime.strftime("%d/%m/%Y"), font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
-            self.lbl_date.grid(row=0, column=2, padx=10, sticky="e")
+            self.lbl_date = ctk.CTkLabel(self, text=mtime.strftime("%d %b %Y"), font=(Theme.FONT_FAMILY, 12), text_color=Theme.TEXT_DIM)
+            self.lbl_date.grid(row=0, column=2, padx=15, sticky="e")
             
-            # Export Button (Small)
-            self.btn_export = ctk.CTkButton(self, text="", image=IconFactory.get_icon("file", size=(16,16)), # Fallback to generic file icon
-                                            fg_color="transparent", hover_color=Theme.COLOR_PANEL_HOVER, width=30, height=30,
-                                            command=lambda: on_export(project_path))
-            self.btn_export.grid(row=0, column=3, padx=(0, 5), sticky="e")
-
-            # Delete Button (Small)
-            self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(16,16)),
-                                        fg_color="transparent", hover_color="#CF0000", width=30, height=30,
+            # Action buttons
+            self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(14,14)),
+                                        fg_color="transparent", hover_color="#ef4444", width=32, height=32, corner_radius=8,
                                         command=lambda: on_delete(project_path))
-            self.btn_del.grid(row=0, column=4, padx=(0, 10), sticky="e")
+            self.btn_del.grid(row=0, column=3, padx=(0, 15), sticky="e")
             
-            self.grid_columnconfigure(1, weight=1)
-            self.grid_columnconfigure(2, weight=0)
-            self.grid_columnconfigure(3, weight=0)
-            self.grid_columnconfigure(4, weight=0)
-
         else:
-            # Full Card for "Recent"
-            self.icon = ctk.CTkButton(self, text="", image=IconFactory.get_icon("folder", size=(48,48)), 
-                                      fg_color="transparent", hover=False, 
-                                      command=lambda: on_click(project_path))
-            self.icon.grid(row=0, column=0, pady=(25, 15), sticky="ew")
+            # Full Project Card for "Recent"
+            self.grid_columnconfigure(0, weight=1)
             
-            self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=("Segoe UI", 18, "bold"), text_color=Theme.TEXT_MAIN)
-            self.lbl_title.grid(row=1, column=0, padx=15, sticky="ew")
-            self.lbl_date = ctk.CTkLabel(self, text=f"Modificato: {mtime.strftime('%d/%m/%Y')}", font=("Segoe UI", 12), text_color=Theme.TEXT_DIM)
-            self.lbl_date.grid(row=2, column=0, padx=15, pady=(5, 20), sticky="ew")
+            # Large Folder Icon Badge
+            self.icon_frame = ctk.CTkFrame(self, fg_color=Theme.COLOR_BG, width=80, height=80, corner_radius=20)
+            self.icon_frame.grid(row=0, column=0, pady=(30, 20))
+            self.icon_frame.grid_propagate(False)
             
-            # Export Button
-            self.btn_export = ctk.CTkButton(self, text="Export", font=("Segoe UI", 11),
-                                            fg_color="transparent", border_width=1, border_color=Theme.COLOR_BORDER,
-                                            hover_color=Theme.COLOR_PANEL_HOVER, width=60, height=24,
-                                            command=lambda: on_export(project_path))
-            self.btn_export.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
+            self.icon_lbl = ctk.CTkLabel(self.icon_frame, text="", image=IconFactory.get_icon("folder", size=(40,40)))
+            self.icon_lbl.place(relx=0.5, rely=0.5, anchor="center")
             
-            # Delete Button (Floating)
+            self.lbl_title = ctk.CTkLabel(self, text=project_path.name, font=(Theme.FONT_FAMILY, 20, "bold"), text_color=Theme.TEXT_MAIN)
+            self.lbl_title.grid(row=1, column=0, padx=20, sticky="ew")
+            
+            self.lbl_date = ctk.CTkLabel(self, text=f"Ultima modifica: {mtime.strftime('%d %B %Y')}", font=(Theme.FONT_FAMILY, 13), text_color=Theme.TEXT_DIM)
+            self.lbl_date.grid(row=2, column=0, padx=20, pady=(8, 30), sticky="ew")
+            
+            # Hidden Delete (Only visible on hover would be cool, but CTK limitation on children visibility triggers)
             self.btn_del = ctk.CTkButton(self, text="", image=IconFactory.get_icon("trash", size=(16,16)),
-                                        fg_color="transparent", hover_color="#CF0000", width=30, height=30,
+                                        fg_color="transparent", hover_color="#ef4444", width=36, height=36, corner_radius=10,
                                         command=lambda: on_delete(project_path))
-            self.btn_del.place(relx=1.0, rely=0.0, anchor="ne", x=-5, y=5)
-        
-        # Make all children clickable
-        for child in self.winfo_children():
+            self.btn_del.place(relx=1.0, rely=0.0, anchor="ne", x=-8, y=8)
+
+        # Make card clickable (excluding specific buttons)
+        self.bind("<Button-1>", lambda e: on_click(project_path))
+        for child in [self.icon_frame, self.icon_lbl, self.lbl_title, self.lbl_date]:
             child.bind("<Button-1>", lambda e: on_click(project_path))
             child.bind("<Enter>", self.on_enter)
             child.bind("<Leave>", self.on_leave)
@@ -101,23 +93,24 @@ class DashboardFrame(ctk.CTkFrame):
         self.grid_rowconfigure(1, weight=1)
 
         # --- Header ---
-        self.header = ctk.CTkFrame(self, fg_color="transparent", height=80)
-        self.header.grid(row=0, column=0, sticky="ew", padx=50, pady=40)
+        self.header = ctk.CTkFrame(self, fg_color="transparent")
+        self.header.grid(row=0, column=0, sticky="ew", padx=50, pady=(60, 40))
         
-        ctk.CTkLabel(self.header, text="Dashboard", font=("Segoe UI", 36, "bold"), text_color=Theme.TEXT_MAIN).pack(side="left")
+        ctk.CTkLabel(self.header, text="Dashboard", font=(Theme.FONT_FAMILY, 42, "bold"), text_color=Theme.TEXT_MAIN).pack(side="left")
         
         # New Project Button (Accent)
         self.btn_new = ctk.CTkButton(self.header, text="+ Nuovo Progetto", 
-                                     font=("Segoe UI", 14, "bold"),
+                                     font=(Theme.FONT_FAMILY, 14, "bold"),
                                      fg_color=Theme.COLOR_ACCENT, hover_color=Theme.COLOR_ACCENT_HOVER,
-                                     height=44, corner_radius=22,
+                                     height=46, corner_radius=23,
                                      command=self.create_new_project)
         self.btn_new.pack(side="right")
         
         self.btn_import = ctk.CTkButton(self.header, text="Importa", 
+                                        font=(Theme.FONT_FAMILY, 14),
                                         fg_color="transparent", border_width=1, border_color=Theme.COLOR_BORDER,
                                         text_color=Theme.TEXT_MAIN, hover_color=Theme.COLOR_PANEL_HOVER,
-                                        width=100, height=44, corner_radius=22,
+                                        width=110, height=46, corner_radius=23,
                                         command=self.import_project_dialog)
         self.btn_import.pack(side="right", padx=15)
 
@@ -144,25 +137,25 @@ class DashboardFrame(ctk.CTkFrame):
         others = projects[3:] if len(projects) > 3 else []
         
         # SECTION: Recent
-        lbl_recent = ctk.CTkLabel(self.scrollable, text="Recenti", font=("Segoe UI", 20, "bold"), text_color=Theme.TEXT_MAIN)
-        lbl_recent.pack(anchor="w", pady=(10, 15), padx=10)
+        lbl_recent = ctk.CTkLabel(self.scrollable, text="Progetti Recenti", font=(Theme.FONT_FAMILY, 22, "bold"), text_color=Theme.TEXT_MAIN)
+        lbl_recent.pack(anchor="w", pady=(10, 20), padx=10)
         
         recent_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
-        recent_frame.pack(fill="x", pady=(0, 30))
+        recent_frame.pack(fill="x", pady=(0, 40))
         recent_frame.grid_columnconfigure((0,1,2), weight=1)
         
         for i, p_path in enumerate(recent):
             card = ProjectCard(recent_frame, p_path, on_click=self.on_project_selected, on_export=self.export_project_dialog, on_delete=self.delete_project_confirm, is_compact=False)
             card.grid(row=0, column=i, padx=10, sticky="ew")
-
+ 
         # SECTION: All Projects
         if others:
-            lbl_all = ctk.CTkLabel(self.scrollable, text="Tutti i Progetti", font=("Segoe UI", 20, "bold"), text_color=Theme.TEXT_MAIN)
-            lbl_all.pack(anchor="w", pady=(10, 15), padx=10)
-            
+            lbl_all = ctk.CTkLabel(self.scrollable, text="Altri Progetti", font=(Theme.FONT_FAMILY, 22, "bold"), text_color=Theme.TEXT_MAIN)
+            lbl_all.pack(anchor="w", pady=(10, 20), padx=10)
+             
             all_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
             all_frame.pack(fill="x")
-            all_frame.grid_columnconfigure((0,1), weight=1) # 2 columns for compact list
+            all_frame.grid_columnconfigure((0,1), weight=1) # 2 columns
             
             for i, p_path in enumerate(others):
                 card = ProjectCard(all_frame, p_path, on_click=self.on_project_selected, on_export=self.export_project_dialog, on_delete=self.delete_project_confirm, is_compact=True)

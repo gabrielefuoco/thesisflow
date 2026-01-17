@@ -6,6 +6,8 @@ from src.ui.theme import Theme
 from src.ui.components.line_numbers import LineNumbers
 from src.ui.components.find_replace import FindReplaceDialog
 from src.ui.components.citation_popup import CitationPopup
+from src.utils.html_renderer import HTMLRenderer
+from tkhtmlview import HTMLLabel
 
 class EditorFrame(ctk.CTkFrame):
     def __init__(self, master, on_change: Callable = None, get_citations_callback: Callable[[], List[str]] = None, **kwargs):
@@ -46,10 +48,13 @@ class EditorFrame(ctk.CTkFrame):
         
         self.textbox.bind("<<Modified>>", self._on_text_change)
         self.textbox.bind("<KeyRelease>", self.on_key_release)
+        self.textbox.bind("<ButtonRelease-1>", self.on_click)
         self.textbox.bind("<Control-f>", self.open_find_dialog)
         
         self.preview_visible = False
-        self.preview_frame = ctk.CTkScrollableFrame(self, label_text="Anteprima", width=0, fg_color=Theme.COLOR_PANEL)
+        self.preview_container = ctk.CTkFrame(self, width=0, fg_color=Theme.COLOR_PANEL)
+        self.html_label = HTMLLabel(self.preview_container, html="<h1>Anteprima</h1>", background=Theme.COLOR_BG)
+        self.html_label.pack(fill="both", expand=True, padx=10, pady=10)
 
         self._debounce_timer = None
         self.suggestion_popup = None
@@ -62,103 +67,44 @@ class EditorFrame(ctk.CTkFrame):
 
     def setup_tags(self):
         tb = self.textbox._textbox
-        tb.tag_config("headers", font=(Theme.FONT_FAMILY, 20, "bold"), foreground=Theme.COLOR_ACCENT)
-        tb.tag_config("bold", font=(Theme.FONT_FAMILY, 16, "bold"))
-        tb.tag_config("italic", font=(Theme.FONT_FAMILY, 16, "italic"))
+        # Header tags
+        tb.tag_config("h1", font=(Theme.FONT_FAMILY, Theme.FONT_SIZE_H1, "bold"), foreground=Theme.COLOR_ACCENT)
+        tb.tag_config("h2", font=(Theme.FONT_FAMILY, Theme.FONT_SIZE_H2, "bold"), foreground=Theme.COLOR_ACCENT)
+        tb.tag_config("h3", font=(Theme.FONT_FAMILY, Theme.FONT_SIZE_H3, "bold"), foreground=Theme.COLOR_ACCENT)
+        
+        # Markdown marker tags (hidden by default)
+        tb.tag_config("md_marker", elide=True, foreground=Theme.TEXT_DIM)
+        
+        # Styling tags
+        tb.tag_config("bold", font=(Theme.FONT_FAMILY, Theme.FONT_SIZE_MAIN, "bold"))
+        tb.tag_config("italic", font=(Theme.FONT_FAMILY, Theme.FONT_SIZE_MAIN, "italic"))
         tb.tag_config("code", font=("Consolas", 14), background="#333333")
+        tb.tag_config("link", foreground=Theme.COLOR_ACCENT, underline=True)
 
     def toggle_preview(self):
         self.preview_visible = not self.preview_visible
         if self.preview_visible:
             self.grid_columnconfigure(1, weight=1)
             self.grid_columnconfigure(2, weight=1)
-            self.preview_frame.grid(row=0, column=2, sticky="nsew", padx=(5,0), pady=0)
+            self.preview_container.grid(row=0, column=2, sticky="nsew", padx=(5,0), pady=0)
             self.textbox.grid_configure(padx=(10, 20))
             self.update_preview()
         else:
-            self.preview_frame.grid_forget()
+            self.preview_container.grid_forget()
             self.grid_columnconfigure(2, weight=0)
             self.textbox.grid_configure(padx=(10, 100))
 
     def update_preview(self):
-        for w in self.preview_frame.winfo_children(): w.destroy()
         text = self.get_text()
-        self.render_markdown(text, self.preview_frame)
+        pm = getattr(self.master.master, 'pm', None)
+        project_path = pm.current_project_path if pm else None
+        
+        html = HTMLRenderer.render(text, project_path)
+        self.html_label.set_html(html)
 
     def render_markdown(self, text, parent):
-        pm = self.master.master.pm
-        lines = text.split('\n')
-        current_block = []
-        
-        def flush_block():
-            if current_block:
-                content = "\n".join(current_block)
-                if not content.strip(): return
-                lbl = ctk.CTkLabel(parent, text=content, font=("Segoe UI", 14), text_color=Theme.TEXT_MAIN, anchor="w", justify="left", wraplength=400)
-                lbl.pack(fill="x", pady=2, padx=5)
-                current_block.clear()
-
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                flush_block()
-                continue
-            
-            if stripped.startswith("# "):
-                flush_block()
-                ctk.CTkLabel(parent, text=stripped[2:], font=("Segoe UI", 24, "bold"), text_color=Theme.TEXT_MAIN, anchor="w", wraplength=400).pack(fill="x", pady=(10, 5), padx=5)
-            elif stripped.startswith("## "):
-                flush_block()
-                ctk.CTkLabel(parent, text=stripped[3:], font=("Segoe UI", 20, "bold"), text_color=Theme.TEXT_MAIN, anchor="w", wraplength=400).pack(fill="x", pady=(8, 4), padx=5)
-            elif stripped.startswith("### "):
-                flush_block()
-                ctk.CTkLabel(parent, text=stripped[4:], font=("Segoe UI", 16, "bold"), text_color=Theme.TEXT_MAIN, anchor="w", wraplength=400).pack(fill="x", pady=(5, 2), padx=5)
-            elif stripped.startswith("![") and "](" in stripped and stripped.endswith(")"):
-                flush_block()
-                try:
-                    start = stripped.index("](") + 2
-                    end = stripped.rindex(")")
-                    img_path_str = stripped[start:end]
-                    if pm and pm.current_project_path:
-                        full_path = pm.current_project_path / img_path_str
-                        if full_path.exists():
-                             from PIL import Image
-                             try:
-                                 pil_img = Image.open(full_path)
-                                 w, h = pil_img.size
-                                 max_w = 380
-                                 if w > max_w:
-                                     ratio = max_w / w
-                                     new_h = int(h * ratio)
-                                     ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(max_w, new_h))
-                                 else:
-                                     ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(w, h))
-                                 ctk.CTkLabel(parent, text="", image=ctk_img).pack(pady=10)
-                             except Exception:
-                                 ctk.CTkLabel(parent, text=f"[Invalid Image: {img_path_str}]", text_color="red").pack(pady=5)
-                        else:
-                             ctk.CTkLabel(parent, text=f"[Image Not Found: {img_path_str}]", text_color="red").pack(pady=5)
-                except Exception:
-                     ctk.CTkLabel(parent, text=f"[Image syntax error]", text_color="red").pack(pady=5)
-            elif stripped.startswith("> "):
-                flush_block()
-                q_frame = ctk.CTkFrame(parent, fg_color=Theme.COLOR_PANEL_HOVER, border_width=0) 
-                q_frame.pack(fill="x", padx=(10, 5), pady=2)
-                border = ctk.CTkFrame(q_frame, width=4, fg_color=Theme.COLOR_ACCENT)
-                border.pack(side="left", fill="y")
-                ctk.CTkLabel(q_frame, text=stripped[2:], font=("Segoe UI", 14, "italic"), text_color=Theme.TEXT_DIM, anchor="w", wraplength=380).pack(side="left", fill="x", padx=5, pady=5)
-            elif stripped.startswith("- ") or stripped.startswith("* "):
-                flush_block()
-                l_frame = ctk.CTkFrame(parent, fg_color="transparent")
-                l_frame.pack(fill="x", padx=5, pady=0)
-                ctk.CTkLabel(l_frame, text="•", font=("Segoe UI", 14, "bold"), text_color=Theme.COLOR_ACCENT).pack(side="left", anchor="n")
-                ctk.CTkLabel(l_frame, text=stripped[2:], font=("Segoe UI", 14), text_color=Theme.TEXT_MAIN, anchor="w", wraplength=370).pack(side="left", fill="x")
-            elif stripped == "---":
-                flush_block()
-                ctk.CTkFrame(parent, height=2, fg_color=Theme.COLOR_BORDER).pack(fill="x", pady=10, padx=20)
-            else:
-                current_block.append(line)
-        flush_block()
+        """Deprecated: using HTMLRenderer instead."""
+        pass
 
     def get_text(self):
         return self.textbox.get("1.0", "end-1c")
@@ -195,10 +141,14 @@ class EditorFrame(ctk.CTkFrame):
 
     def on_key_release(self, event):
         if self._debounce_timer: self.after_cancel(self._debounce_timer)
-        self._debounce_timer = self.after(500, self.perform_updates)
+        self._debounce_timer = self.after(100, self.perform_updates)
         
         if event.char == "@":
             self.show_suggestions()
+
+    def on_click(self, event):
+        # When clicking, we might change lines, so we need to update elision
+        self.highlight_syntax()
 
     def perform_updates(self):
         self.highlight_syntax()
@@ -233,23 +183,65 @@ class EditorFrame(ctk.CTkFrame):
         self.line_numbers.redraw()
 
     def highlight_syntax(self):
+        tb = self.textbox._textbox
+        # Clear all markdown tags
+        for tag in ["h1", "h2", "h3", "md_marker", "bold", "italic", "link"]:
+            tb.tag_remove(tag, "1.0", "end")
+            
+        text = self.get_text()
+        lines = text.split('\n')
+        
+        for i, line in enumerate(lines):
+            line_idx = i + 1
+            
+            # 1. Headers
+            h_match = re.match(r"^(#{1,3})\s+(.*)", line)
+            if h_match:
+                level = len(h_match.group(1))
+                tag = f"h{level}"
+                tb.tag_add(tag, f"{line_idx}.0", f"{line_idx}.end")
+                # Mark only the '#' and the space after it for elision
+                tb.tag_add("md_marker", f"{line_idx}.0", f"{line_idx}.{level + 1}")
+                
+            # 2. Bold / Italic
+            def tag_markers(pattern, styling_tag, group_num=2):
+                for m in re.finditer(pattern, line):
+                    # Whole match
+                    start_char = m.start()
+                    end_char = m.end()
+                    
+                    # Style the content
+                    tb.tag_add(styling_tag, f"{line_idx}.{m.start(group_num)}", f"{line_idx}.{m.end(group_num)}")
+                    
+                    # Elide the markers
+                    # Pattern must have 3 groups: [prefix, content, suffix]
+                    tb.tag_add("md_marker", f"{line_idx}.{m.start(1)}", f"{line_idx}.{m.end(1)}")
+                    tb.tag_add("md_marker", f"{line_idx}.{m.start(3)}", f"{line_idx}.{m.end(3)}")
+
+            tag_markers(r"(\*\*)(.+?)(\*\*)", "bold")
+            tag_markers(r"(\_)(.+?)(\_)", "italic")
+            
+            # 3. Links [text](url)
+            for m in re.finditer(r"(\[)(.+?)(\]\(.+?\))", line):
+                 tb.tag_add("link", f"{line_idx}.{m.start(2)}", f"{line_idx}.{m.end(2)}")
+                 tb.tag_add("md_marker", f"{line_idx}.{m.start(1)}", f"{line_idx}.{m.end(1)}")
+                 tb.tag_add("md_marker", f"{line_idx}.{m.start(3)}", f"{line_idx}.{m.end(3)}")
+
+        self.reveal_syntax()
+
+    def reveal_syntax(self):
+        """Removes the md_marker tag from the current line so the user can edit markdown."""
+        tb = self.textbox._textbox
         try:
-            self.textbox._textbox.tag_remove("headers", "1.0", "end")
-            self.search_and_tag(r"^(#+ .*)", "headers")
-            self.search_and_tag(r"(\*\*.+?\*\*)", "bold")
-            self.search_and_tag(r"(\_.+?\_)", "italic")
+            cursor_pos = tb.index("insert")
+            line_num = cursor_pos.split('.')[0]
+            tb.tag_remove("md_marker", f"{line_num}.0", f"{line_num}.end")
         except:
             pass
 
     def search_and_tag(self, pattern, tag):
-        start = "1.0"
-        count = tk.IntVar()
-        while True:
-            pos = self.textbox._textbox.search(pattern, start, stopindex="end", count=count, regexp=True)
-            if not pos: break
-            end = f"{pos}+{count.get()}c"
-            self.textbox._textbox.tag_add(tag, pos, end)
-            start = end
+        # Deprecated by new highlight_syntax logic but kept for safety if used elsewhere
+        pass
 
     def update_status(self):
         text = self.get_text()

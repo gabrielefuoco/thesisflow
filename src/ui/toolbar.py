@@ -43,12 +43,12 @@ class ToolbarFrame(ctk.CTkFrame):
         sep()
         
         # Headers
-        h1 = ctk.CTkButton(self, text="H1", width=32, fg_color="transparent", font=("Segoe UI", 12, "bold"), 
+        h1 = ctk.CTkButton(self, text="H1", width=32, fg_color="transparent", font=(Theme.FONT_FAMILY, 12, "bold"), 
                       hover_color=Theme.COLOR_PANEL_HOVER, command=lambda: self.insert_prefix("# "))
         h1.pack(side="left")
         ToolTip(h1, "Titolo 1")
         
-        h2 = ctk.CTkButton(self, text="H2", width=32, fg_color="transparent", font=("Segoe UI", 11, "bold"), 
+        h2 = ctk.CTkButton(self, text="H2", width=32, fg_color="transparent", font=(Theme.FONT_FAMILY, 11, "bold"), 
                       hover_color=Theme.COLOR_PANEL_HOVER, command=lambda: self.insert_prefix("## "))
         h2.pack(side="left")
         ToolTip(h2, "Titolo 2")

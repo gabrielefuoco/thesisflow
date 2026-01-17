@@ -49,6 +49,7 @@
 
 #set page(numbering: "1")
 #counter(page).update(1)
+#set heading(numbering: "1.1.")
 
 // Include the compiled body from Pandoc
 #include ".thesis_data/temp/compiled_body.typ"

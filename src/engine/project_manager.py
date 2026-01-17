@@ -4,7 +4,7 @@ import uuid
 import shutil
 from pathlib import Path
 from typing import List, Optional, Callable
-from src.engine.models import ProjectManifest, Chapter
+from src.engine.models import ProjectManifest, Chapter, Paragraph
 from src.utils.paths import get_templates_dir
 
 from src.engine.citation_service import BibliographyService
@@ -143,6 +143,31 @@ class ProjectManager:
         self.manifest = ProjectManifest.from_dict(data)
         self.current_project_path = project_dir
         self.bib_service.load_bibliography(project_dir / "references.bib")
+        
+        # Soft migration: check for paragraphs in chapter subdirectories
+        self._migrate_paragraphs_if_needed()
+
+    def _migrate_paragraphs_if_needed(self):
+        """Discovers existing sub-sections and adds them to manifest if missing."""
+        if not self.manifest or not self.current_project_path: return
+        
+        migrated = False
+        for chapter in self.manifest.chapters:
+            chap_dir = self.current_project_path / "chapters" / chapter.id
+            if chap_dir.is_dir():
+                # Scan for .md files that aren't master.md and not in manifest
+                existing_filenames = {p.filename for p in chapter.paragraphs}
+                for f in sorted(chap_dir.glob("*.md")):
+                    if f.name == "master.md": continue
+                    if f.name not in existing_filenames:
+                        # Found a loose file, add to manifest
+                        p_id = f.stem.split('_')[-1] if '_' in f.stem else uuid.uuid4().hex[:8]
+                        new_p = Paragraph(id=p_id, title=f.stem.replace('_', ' '), filename=f.name)
+                        chapter.paragraphs.append(new_p)
+                        migrated = True
+        
+        if migrated:
+            self.save_settings()
 
     def create_chapter(self, title: str) -> Chapter:
         if not self.manifest or not self.current_project_path:
@@ -160,37 +185,61 @@ class ProjectManager:
         self._save_manifest_internal(self.current_project_path, self.manifest)
         return chapter
 
-    def create_subsection(self, chapter: Chapter, title: str):
-        """Creates a sub-section file in the chapter's directory."""
+    def create_paragraph(self, chapter: Chapter, title: str) -> Paragraph:
+        """Creates a paragraph file in the chapter's directory and updates manifest."""
         if not self.current_project_path:
              raise RuntimeError("No project loaded")
         
-        # Ensure chapter directory exists: chapters/<chapter.id>
         cid = chapter.id
         base_dir = self.current_project_path / "chapters" / cid
         base_dir.mkdir(exist_ok=True, parents=True)
         
-        # Create subsection file with sanitized name
+        pid = uuid.uuid4().hex[:8]
         safe_title = "".join([c for c in title if c.isalnum() or c in (' ', '_', '-')]).strip()
-        sub_filename = f"{safe_title}.md"
+        filename = f"{safe_title}_{pid}.md"
         
-        file_path = base_dir / sub_filename
-        # Avoid overwriting?
-        if file_path.exists():
-            file_path = base_dir / f"{safe_title}_{uuid.uuid4().hex[:4]}.md"
-
+        file_path = base_dir / filename
         file_path.write_text(f"## {title}\n\n", encoding="utf-8")
 
-        # FIX: Automatically include the new subsection in the chapter's master file (the .md file in chapters/)
-        # The compiler resolves includes relative to chapters/ directory for flat files.
-        # chapter.filename is e.g. "chap_1234.md"
-        # We need to add {{ include: 1234/subsection.md }}
+        new_paragraph = Paragraph(id=pid, title=title, filename=filename)
+        chapter.paragraphs.append(new_paragraph)
+        self.save_settings()
+        return new_paragraph
+
+    def create_subsection(self, chapter: Chapter, title: str):
+        """Deprecated: Use create_paragraph instead."""
+        self.create_paragraph(chapter, title)
+
+    def delete_paragraph(self, chapter: Chapter, paragraph: Paragraph):
+        """Deletes a paragraph file and removes from manifest."""
+        if not self.current_project_path: return
         
-        master_chapter = self.current_project_path / "chapters" / chapter.filename
-        if master_chapter.exists():
-            include_directive = f"\n\n{{{{ include: {cid}/{sub_filename} }}}}"
-            with open(master_chapter, "a", encoding="utf-8") as f:
-                f.write(include_directive)
+        chapter.paragraphs = [p for p in chapter.paragraphs if p.id != paragraph.id]
+        self.save_settings()
+        
+        file_path = self.current_project_path / "chapters" / chapter.id / paragraph.filename
+        if file_path.exists():
+            file_path.unlink()
+
+    def move_paragraph(self, chapter: Chapter, paragraph: Paragraph, direction: str):
+        """Moves a paragraph 'up' or 'down' in the chapter list."""
+        idx = -1
+        for i, p in enumerate(chapter.paragraphs):
+            if p.id == paragraph.id:
+                idx = i
+                break
+        
+        if idx == -1: return
+
+        new_idx = idx
+        if direction == "up" and idx > 0:
+            new_idx = idx - 1
+        elif direction == "down" and idx < len(chapter.paragraphs) - 1:
+            new_idx = idx + 1
+        
+        if new_idx != idx:
+            chapter.paragraphs[idx], chapter.paragraphs[new_idx] = chapter.paragraphs[new_idx], chapter.paragraphs[idx]
+            self.save_settings()
 
     def export_project(self, project_path: Path, export_path: Path):
         """Exports the project as a ZIP archive."""
@@ -495,34 +544,15 @@ class ProjectManager:
                 for i, chapter in enumerate(self.manifest.chapters):
                     if on_progress: on_progress(f"Conversione {chapter.title}...", 0.1 + (0.5 * (i / total_chapters)))
                     
-                    # Read MD
-                    md_path = self.current_project_path / "chapters" / chapter.filename
-                    if not md_path.exists(): continue
+                    # 1.1 Read and Resolve Chapter Content
+                    full_md = self._resolve_chapter_markdown(chapter)
                     
-                    md_content = md_path.read_text(encoding="utf-8")
-                    
-                    # Pre-process includes??
-                    # ThesisFlow convention: {{ include: ... }}
-                    # We might need to handle this.
-                    # Simple approach: Convert the MD content. Pandoc handles basic MD.
-                    # But if we have sub-files...
-                    # For now assume flattened or Pandoc handles it? 
-                    # Pandoc doesn't handle CUSTOM {{ include }} syntax.
-                    # We should resolve text includes first.
-                    
-                    # Resolve Includes
-                    full_md = self._resolve_includes(md_path)
-                    
-                    # Convert to Typst
+                    # 1.2 Convert to Typst
                     typ_filename = f"{chapter.id}.typ"
                     typ_path = temp_dir / typ_filename
                     pandoc.convert_markdown_to_typst(full_md, typ_path)
                     
-                    # Add to master body
-                    # Typst include path relative to project root?
-                    # compiled_body.typ is in .thesis_data/temp/
-                    # if we include from compiled_body.typ using relative paths:
-                    # include "1234.typ" works if they are side-by-side.
+                    # 1.3 Add to master body
                     includes.append(f'#include "{typ_filename}"')
                 
                 # Write compiled_body.typ
@@ -557,22 +587,39 @@ class ProjectManager:
 
         threading.Thread(target=_pipeline, daemon=True).start()
 
+    def _resolve_chapter_markdown(self, chapter: Chapter) -> str:
+        """Concatenates chapter content with its structured paragraphs."""
+        if not self.current_project_path: return ""
+        
+        # 1. Read Master Chapter file
+        md_path = self.current_project_path / "chapters" / chapter.filename
+        content = md_path.read_text(encoding="utf-8") if md_path.exists() else f"# {chapter.title}\n"
+        
+        # 2. Append Paragraphs
+        paragraph_contents = []
+        for p in chapter.paragraphs:
+            p_path = self.current_project_path / "chapters" / chapter.id / p.filename
+            if p_path.exists():
+                p_text = p_path.read_text(encoding="utf-8")
+                # Ensure it starts with a proper heading if it doesn't already?
+                # Actually create_paragraph adds it.
+                paragraph_contents.append(p_text)
+        
+        if paragraph_contents:
+            content += "\n\n" + "\n\n".join(paragraph_contents)
+            
+        return content
+
     def _resolve_includes(self, file_path: Path, depth=0) -> str:
-        if depth > 5: return "" # Cycle protection
+        """Legacy helper for manual {{ include }} directives."""
+        if depth > 5: return "" 
         if not file_path.exists(): return ""
         
         content = file_path.read_text(encoding="utf-8")
         import re
-        # Match {{ include: path/to/file.md }}
-        # Regex: \{\{\s*include:\s*(.+?)\s*\}\}
         
         def repl(match):
             inc_path_str = match.group(1)
-            # Resolve relative to chapters dir? Or file dir?
-            # Convention: id/filename.md
-            # file_path is chapters/master.md or chapters/id/sub.md
-            
-            # Try resolving relative to chapters root
             candidate = self.current_project_path / "chapters" / inc_path_str
             if not candidate.exists():
                 return f"**Error: Check include path {inc_path_str}**"

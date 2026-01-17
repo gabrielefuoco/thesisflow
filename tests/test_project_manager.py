@@ -107,26 +107,24 @@ def test_add_asset(project_manager, tmp_path):
     rel_path_2 = project_manager.add_asset(src_img)
     assert rel_path_2 == "assets/image_1.png"
 
-def test_create_subsection(project_manager):
-    """Test creating a subsection (file inside chapter folder)."""
+def test_create_paragraph(project_manager):
+    """Test creating a paragraph (file inside chapter folder) and manifest update."""
     project_manager.create_project("SubTest", "Me")
     chap = project_manager.manifest.chapters[0]
     
-    project_manager.create_subsection(chap, "My Paragraph")
+    p = project_manager.create_paragraph(chap, "My Paragraph")
     
-    # Expectation: chapters/<chap_id>/My Paragraph.md
-    safe_title = "My_Paragraph.md" # sanitized
-    # Note: sanitization uses space if allowed, or underscore? 
-    # Logic: "".join([c for c in title if c.isalnum() or c in (' ', '_', '-')])
-    # "My Paragraph" -> "My Paragraph"
+    assert p.title == "My Paragraph"
+    assert len(chap.paragraphs) == 1
     
-    expected_path = project_manager.current_project_path / "chapters" / chap.id / "My Paragraph.md"
-    if not expected_path.exists():
-         # Fallback check if sanitize logic differs (e.g. spaces allowed)
-         expected_path = project_manager.current_project_path / "chapters" / chap.id / "My_Paragraph.md"
-
+    expected_path = project_manager.current_project_path / "chapters" / chap.id / p.filename
     assert expected_path.exists()
-    assert "# My Paragraph" in expected_path.read_text(encoding="utf-8")
+    assert "## My Paragraph" in expected_path.read_text(encoding="utf-8")
+    
+    # Verify persistence
+    project_manager.load_project(project_manager.current_project_path)
+    assert len(project_manager.manifest.chapters[0].paragraphs) == 1
+    assert project_manager.manifest.chapters[0].paragraphs[0].title == "My Paragraph"
 
 def test_invalid_project_name(project_manager):
     """Test creating project with invalid characters."""
@@ -173,8 +171,9 @@ def test_pm_list_subsections(project_manager):
     
     subs = project_manager.list_subsections(chap)
     assert len(subs) == 2
-    names = [f.stem for f in subs]
-    assert "Sub1.md" in filter(lambda n: "Sub1" in n, [f.name for f in subs]) or "Sub1" in names
+    names = [f.name for f in subs]
+    assert any("Sub1" in n for n in names)
+    assert any("Sub2" in n for n in names)
 
 def test_pm_list_templates(project_manager):
     """Test listing templates."""
@@ -199,3 +198,26 @@ def test_save_settings(project_manager):
     # Verify reload
     project_manager.load_project(project_manager.current_project_path)
     assert project_manager.manifest.author == "New Author"
+
+def test_paragraph_migration(project_manager):
+    """Test that loose section files are migrated to manifest on load."""
+    project_manager.create_project("MigrationTest", "Me")
+    chap = project_manager.manifest.chapters[0]
+    
+    # 1. Manually create a section file (simulating old version)
+    chap_dir = project_manager.current_project_path / "chapters" / chap.id
+    chap_dir.mkdir(exist_ok=True, parents=True)
+    loose_file = chap_dir / "LooseSection.md"
+    loose_file.write_text("## Loose Section\nContent", encoding="utf-8")
+    
+    # At this point, manifest.json DOES NOT know about this file
+    assert len(chap.paragraphs) == 0
+    
+    # 2. Reload project
+    project_manager.load_project(project_manager.current_project_path)
+    
+    # 3. Verify it was discovered and added
+    assert len(project_manager.manifest.chapters[0].paragraphs) == 1
+    migrated_p = project_manager.manifest.chapters[0].paragraphs[0]
+    assert migrated_p.title == "LooseSection"
+    assert migrated_p.filename == "LooseSection.md"

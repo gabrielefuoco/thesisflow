@@ -13,6 +13,7 @@ from src.ui.console import ConsolePanel
 from src.ui.outline import OutlinePanel
 from src.ui.theme import Theme
 from src.ui.router import ViewRouter
+from src.ui.components.breadcrumb import Breadcrumb
 
 from src.engine.compiler import CompilationError
 from src.controllers.project_controller import ProjectController
@@ -116,12 +117,11 @@ class ThesisFlowApp(ctk.CTk):
         self.content_area.grid_columnconfigure(0, weight=1) # Editor column
         self.content_area.grid_columnconfigure(1, weight=0) # Outline column
 
-        # Header
         self.header_frame = ctk.CTkFrame(self.content_area, height=60, fg_color="transparent")
         self.header_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=20, pady=(10, 0))
         
-        self.lbl_chapter_title = ctk.CTkLabel(self.header_frame, text="", font=("Segoe UI", 24, "bold"), text_color=Theme.TEXT_MAIN)
-        self.lbl_chapter_title.pack(side="left")
+        self.breadcrumb = Breadcrumb(self.header_frame)
+        self.breadcrumb.pack(side="left", pady=10)
         
         self.btn_compile = ctk.CTkButton(self.header_frame, text="PUBBLICA PDF", 
                                          font=("Segoe UI", 12, "bold"),
@@ -263,7 +263,16 @@ class ThesisFlowApp(ctk.CTk):
 
     def load_chapter(self, chapter):
         self._ensure_editor_mode()
-        self.lbl_chapter_title.configure(text=chapter.title)
+        
+        # Update Breadcrumb
+        title = self.pm.manifest.title if self.pm.manifest else "Progetto"
+        try:
+            idx = self.pm.manifest.chapters.index(chapter) + 1
+            display_title = f"{idx}. {chapter.title}"
+        except (ValueError, AttributeError):
+            display_title = chapter.title
+            
+        self.breadcrumb.update_path([title, display_title])
         
         if self.current_file_path:
              self.save_current_file()
@@ -273,13 +282,37 @@ class ThesisFlowApp(ctk.CTk):
              self.current_file_path = self.pm.current_project_path / "chapters" / chapter.filename
              content = self.pm.read_file_content(self.current_file_path)
              self.editor.set_text(content)
-    
-    def load_file(self, path: Path, parent_chapter):
+
+    def load_paragraph(self, paragraph, parent_chapter):
         self._ensure_editor_mode()
+        
+        # Update Breadcrumb
+        title = self.pm.manifest.title if self.pm.manifest else "Progetto"
+        try:
+            c_idx = self.pm.manifest.chapters.index(parent_chapter) + 1
+            p_idx = parent_chapter.paragraphs.index(paragraph) + 1
+            c_title = f"{c_idx}. {parent_chapter.title}"
+            p_title = f"{c_idx}.{p_idx} {paragraph.title}"
+            self.breadcrumb.update_path([title, c_title, p_title])
+        except (ValueError, AttributeError):
+            self.breadcrumb.update_path([title, parent_chapter.title, paragraph.title])
+        
         if self.current_file_path:
              self.save_current_file()
              
-        self.lbl_chapter_title.configure(text=f"{parent_chapter.title} > {path.stem.replace('_', ' ')}")
+        self.current_chapter = parent_chapter
+        self.current_file_path = self.pm.current_project_path / "chapters" / parent_chapter.id / paragraph.filename
+        
+        if self.current_file_path.exists(): 
+             content = self.pm.read_file_content(self.current_file_path)
+             self.editor.set_text(content)
+    
+    def load_file(self, path: Path, parent_chapter):
+        self._ensure_editor_mode()
+        # Update Breadcrumb
+        title = self.pm.manifest.title if self.pm.manifest else "Progetto"
+        file_display = path.stem.replace('_', ' ')
+        self.breadcrumb.update_path([title, parent_chapter.title, file_display])
         self.current_chapter = parent_chapter # Keep parent context
         self.current_file_path = path
         
@@ -364,9 +397,9 @@ class ThesisFlowApp(ctk.CTk):
         self.btn_compile.configure(state="normal", text="PUBBLICA PDF")
 
     def show_toast(self, message, duration=3000):
-        toast = ctk.CTkFrame(self, fg_color=Theme.COLOR_PANEL, border_width=1, border_color=Theme.COLOR_ACCENT, corner_radius=20)
-        toast.place(relx=0.98, rely=0.95, anchor="se")
-        ctk.CTkLabel(toast, text=message, font=("Segoe UI", 12), text_color=Theme.TEXT_MAIN).pack(padx=20, pady=10)
+        toast = ctk.CTkFrame(self, fg_color=Theme.COLOR_PANEL, border_width=1, border_color=Theme.COLOR_ACCENT, corner_radius=25)
+        toast.place(relx=0.98, rely=0.95, anchor="se", x=-20, y=-20)
+        ctk.CTkLabel(toast, text=message, font=(Theme.FONT_FAMILY, 13, "bold"), text_color=Theme.TEXT_MAIN).pack(padx=25, pady=12)
         self.after(duration, toast.destroy)
 
     def mark_dirty(self):
